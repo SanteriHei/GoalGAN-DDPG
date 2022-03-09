@@ -72,6 +72,13 @@ class MazeEnv:
     def observation_space(self) -> gym.spaces.box.Box:
         '''Returns the observation space of the environment '''
         return self._env.observation_space
+    
+    @property
+    def limits(self) -> Tuple[float, float]:
+        '''Return the limits of the environment in (low, high) tuple'''
+        low = self.observation_space.low[0]
+        high = self.observation_space.high[0]
+        return low, high
 
     @property
     def goals(self) -> Sequence[npt.ArrayLike]:

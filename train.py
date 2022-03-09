@@ -114,7 +114,7 @@ def _initialize_gan(gan: LSGAN, agent: DDPGAgent, env: MazeEnv, iter_count: int,
         if (i+1)%10 == 0:
             print(f"[i: {i}]")
         starting_pos = torch.from_numpy(env.agent_pos)
-        goals = torch.clamp(starting_pos + 0.1*torch.randn(goal_count, env.goal_size), min=-1, max=1)
+        goals = torch.clamp(starting_pos + 0.1*torch.randn(goal_count, env.goal_size), *env.limits)
 
         #Train the agent with the randomly generated goals
         returns = _eval_and_update_policy(agent, env, goals)
@@ -124,7 +124,7 @@ def _initialize_gan(gan: LSGAN, agent: DDPGAgent, env: MazeEnv, iter_count: int,
     #After the Policy is trained with the random goals, we choose random, easy goals from the close neighborhood of the agent.
     env.reset()
     goals = torch.from_numpy(env.agent_pos).unsqueeze(0) + 0.1*torch.randn(goal_count, env.goal_size)
-    return torch.clamp(goals, -1, 1)
+    return torch.clamp(goals, *env.limits)
 
 
 def train(
@@ -185,6 +185,8 @@ def train(
     for i in range(iter_count):
         if (i + 1)%10 == 0:
             print(f"[Iter: {i}]")
+            utils.display_agent_and_goals(env.agent_pos, goals, env.limits, filepath=f"images/img_{i}.png", pos_label="Agent position", title=f"Iteration {i}", goal_label="goals")
+            
 
         #Sample noise
         z = torch.randn((goal_count, gan.generator_input_size)) 

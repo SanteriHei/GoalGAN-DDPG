@@ -9,4 +9,4 @@ test.py
 checkpoints/*
 
 #Possible logs files from mujoco
-MUJOCO_LOG.txt
+MUJOCO_LOG.TXT

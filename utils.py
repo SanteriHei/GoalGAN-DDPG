@@ -1,4 +1,3 @@
-
 import torch
 import numpy as np
 import matplotlib.pyplot as plt
@@ -6,10 +5,12 @@ import matplotlib.pyplot as plt
 import pathlib
 import datetime
 
-from typing import Iterable, Union, Tuple, Sequence
+from typing import Iterable, Union, Tuple, Sequence, Optional
 from os import PathLike
 import numpy.typing as npt
 
+
+Numeric = Union[float, int]
 
 #Some constants for doing visualizations
 _IMG_SIZE = (400, 400)
@@ -17,25 +18,48 @@ _WIDTH = 100
 _HEIGHT = 250
 _BARRIER_WIDTH = 50
 
-def _rescale(data: npt.NDArray, range: Tuple[int, int] = (0, 1)) -> npt.NDArray[np.float32]:
+
+def _rescale(data: Union[Numeric, npt.NDArray], old_range: Tuple[float, float], new_range: Tuple[float, float] = (0.0, 1.0)) -> Union[Numeric, npt.NDArray]:
     '''
-    Rescales data linearly between the given range
+    Rescales data linearly from given range to a new range.
 
     Parameters
     ----------
-    data: npt.NDArray:
-        The data to scale. The data should be of a numeric type
-    range: Tuple[int, int], Optional
-        The range, where the values will be scaled to. Default (0, 1)
-    
+    data: Numeric | npt.NDArray:
+        The data to scale. Can be either a single numeric value or an array of values.
+    old_range: Tuple[float, float]
+        The old range, where the value(s) are currently located
+    new_range: Tuple[float, float], Optional
+        The range, where the value will be scaled to. Default (0, 1)
     Returns
     -------
-    npt.NDArray
-        The rescaled data, as floats.
+    Numeric | npt.NDArray
+        The rescaled data. Will be of same type as the passed in value. 
     '''
-    assert abs(max(range)- min(range)) > np.finfo(np.float32).eps , f"Expexted a range that contains different values, but got {range}"
-    return (((data - np.min(data))/np.ptp(data)) * (max(range) - min(range))).astype(np.float32)
+    min_val, max_val = min(old_range), max(old_range)
+    return ((data - min_val) / (max_val - min_val))* (max(new_range) - min(new_range))
 
+
+
+def _create_env_image() -> npt.NDArray:
+    '''
+    Creates a conceptual image of the maze. Used
+    for illustrative purposes
+
+    Returns
+    ------
+    npt.NDArray
+        The created gray-scale image.
+    '''
+
+        #Create the 'enviroment' presentation
+    base_img = np.ones(_IMG_SIZE)
+    mid = _IMG_SIZE[0]//2
+    base_img[mid - _WIDTH//2: mid + _WIDTH//2, :_HEIGHT] = 0
+    base_img[:_BARRIER_WIDTH, :] = 0
+    base_img[_IMG_SIZE[0] - _BARRIER_WIDTH:, :] = 0
+    base_img[:, _IMG_SIZE[0] - _BARRIER_WIDTH: ] = 0
+    return base_img
 
 
 def label_goals(returns: Iterable[float], rmin=0.1, rmax=0.9) -> npt.NDArray[np.uint32]:
@@ -101,64 +125,74 @@ def get_device_repr(device: Union[str, torch.device]) -> str:
     return torch.cuda.get_device_name(device) if device.type == 'cuda' else "cpu"
 
 
-def display_goals(goals: npt.ArrayLike, filepath: Union[str, PathLike], rescale: bool = True, **kwargs) -> None:
+
+
+def display_agent_and_goals(agent_pos: npt.NDArray, goals: npt.ArrayLike, coord_range: Tuple[float, float], filepath: Optional[Union[str, PathLike]] = None, ax: plt.Axes = None, **kwargs) -> None:
     '''
-    Displays the current goals on a figure, and saves the figure. Note, due to bug with mujoco-py,
-    and nvidia drivers, the goals will be displayed over a representive figure of the environment, not over
-    the real environment. 
-    
+    Displays the current position of the agent, and the current goals.
+
     Parameters
     ----------
-    goals: npt.Arraylike
-        The goals to display. Must have shape of (2, *) or (*, 2), where
-        one of the channels represents the x-components and other the y-components 
-    
-    filepath: Union[str, os.pathlike]
-        Path to file where the figure will be saved
-    
-    rescale: bool, Optional
-        Define if the data needs to be rescaled before plotted. Default true.
-
-    kwargs: name arguments
-        title: str -> Adds a title to the figure
-        label: str -> Adds label to the goals
-        All other specified options are passed to the plt.imshow command.
+    agent_pos: npt.NDArray
+        The position of the agent. Should be an 2 element array
+    goals: npt.NDArray
+        The goals. Each element should be a 2-element array 
+        presenting the (x,y) coordinate pairs
+    coord_range: Tuple[float, float]
+        The coordinate range, where the given points are in.
+    filepath: Optional[str | PathLike]
+        Filepath, where the image will be saved to. If it is None, 
+        the image is not saved. Note: To use this option, ax must be None. Default None.
+    ax: Optional[plt.Axes]
+        The axis where the goals and and agent will be displayed. If it 
+        is None, then a new axis will be made. Default None.
+    kwargs: named arguments:
+        title: str 
+            Title for the image
+        pos_label: str
+            Label for the agent position
+        goal_label: str
+            Label for the goal(s)
+        All other specified option's will be given to the ax.imshow method
     '''
-    goals = np.array(goals) if not isinstance(goals, np.ndarray) else goals
+    base_img = _create_env_image()
+    fig = None
 
-    assert goals.shape[0] == 2 or goals.shape[1] == 2, f"The goals should contain x, y components, now the size was {goals.shape}"
-    
-    
-    #Create the 'enviroment' presentation
-    base_img = np.ones(_IMG_SIZE)
-    mid = _IMG_SIZE[0]//2
-    base_img[mid - _WIDTH//2: mid + _WIDTH//2, :_HEIGHT] = 0
-    base_img[:_BARRIER_WIDTH, :] = 0
-    base_img[_IMG_SIZE[0] - _BARRIER_WIDTH:, :] = 0
-    base_img[:, _IMG_SIZE[0] - _BARRIER_WIDTH: ] = 0
-    
-    #Plot the actual image
-    fig, ax = plt.subplots(1,1, figsize=(10,10))
+    if filepath is not None and ax is not None:
+        raise ValueError("If ax is specified, the filepath cannot be specified!")
+        
+    if ax is None:
+        fig, ax = plt.subplots(1,1, figsize=(10,10))
+
+
+    pos_label = kwargs.pop("pos_label", None)
+    goal_label = kwargs.pop("goal_label", None)
     title = kwargs.pop("title", None)
-    if title:
-        ax.set_title(title)
 
-    label = kwargs.pop("label", None)
+    #Plot the actual image
     ax.imshow(base_img, cmap="gray", **kwargs)
-    
-    #Rescale the data to match the enviroment.
-    if rescale:
-        goals = _rescale(goals, (0, 400))
-    
-    x, y = goals if goals.shape[0] == 2 else goals.T    
-    if label:
-        ax.scatter(x, y, label=label)
-        ax.legend()
-    else:
-        ax.scatter(x, y)
+    ax.grid(None)
+    ax.set_xticklabels([])
+    ax.set_yticklabels([])
 
-    fig.savefig(filepath)
-    plt.close(fig)
+    ax.set_title(title)
+
+    scaled_pos = _rescale(agent_pos, coord_range, (0, _IMG_SIZE[0]))
+    scaled_goals = _rescale(goals, coord_range, (0, _IMG_SIZE[0]))
+
+    x, y = scaled_goals if scaled_goals.shape[0] == 2 else scaled_goals.T
+
+    ax.scatter(scaled_pos[0], scaled_pos[1], c="r", s=60, marker='x', label=pos_label)
+    ax.scatter(x, y, c="b", s=60, marker="o", label=goal_label)
+    ax.invert_yaxis() #Y-axis is inverted in the coordinate systems.
+
+    #If one of the labels was specified, draw it.
+    if goal_label is not None or pos_label is not None:
+        ax.legend(fontsize=8)
+
+    if fig is not None and filepath is not None:
+        fig.savefig(filepath)    
+        plt.close()
 
 
 def line_plot(x: npt.NDArray, y: npt.NDArray, filepath: Union[str, PathLike], labels: Sequence[str], **kwargs) -> None:
