@@ -1,11 +1,14 @@
 # Goal-GAN for DDPG Agent
 
 ## TODO
-- [ ] LSGAN training?
-- [ ] What are the observations from the enviroment?
-- [ ] Saving the model during the training
-- [ ] Choose optimizer for the DDPG agent
-- [ ] Update the CLI
+- [ ] Ensure the training of the DDPG
+- [ ] Train the model
+- [x] Write the evaluation code
+- [x] The range for the positions? (-4 -> 20 maybe?)
+- [x] What are the observations from the enviroment? -> Answer from the original paper
+- [x] Saving the model during the training
+- [x] Choose optimizer for the DDPG agent
+- [x] Update the CLI
 
 ## Installation
 - First, install mujoco, the installation instructions can be found on their [Github-page](https://github.com/openai/mujoco-py) (NOTE: as of writing, only version 2.10 of mujoco is supported)

@@ -1,6 +1,7 @@
 
 from models.rl import Actor, Critic, OUNoise, MemoryBuffer, Experience
-from utils import timestamp_path
+
+import utils
 
 import torch
 import torch.nn as nn
@@ -9,6 +10,7 @@ import torch.optim as optim
 
 from typing import Tuple, Union
 from os import PathLike
+import numpy.typing as npt
 
 import pathlib
 import warnings
@@ -107,6 +109,8 @@ class DDPGAgent:
         self._gamma: float = config.gamma
         self._tau: float = config.tau
 
+        self._logger = utils.get_logger(__name__)
+
 
     def _check_dim_and_unwrap(self, value: Union[int, Tuple[int]]) -> int:
         '''
@@ -130,7 +134,7 @@ class DDPGAgent:
         assert len(value) == 1, f"Expected a 1D size, but got {value}, with ndim {len(value)}"
         return value[0]
 
-    def step(self, experience: Experience) -> None:
+    def step(self, state: npt.NDArray, action: npt.NDArray, reward: float, next_state: npt.NDArray, done: bool) -> None:
         '''
         Takes a step with the action, and updates the replay buffer. If enough data is 
         saved, the agent will be trained
@@ -145,9 +149,11 @@ class DDPGAgent:
         -------
         None
         '''
-        self._buffer.append(experience)
+        exp = Experience(state=state, action=action, reward=reward, next_state=next_state, done=done)
+        self._buffer.append(exp)
 
         if len(self._buffer) > self._buffer.batch_size:
+            self._logger.info("Sampling memory buffer")
             experiences = self._buffer.sample()
             self.learn(experiences)
 
@@ -223,7 +229,7 @@ class DDPGAgent:
         try:
             torch.save(state, path)
         except Exception as e:
-            backup_path = timestamp_path(_BACKUP_PATH)
+            backup_path = utils.timestamp_path(_BACKUP_PATH)
             warnings.warn(f"Error while trying to save the model to location {path}. Trying backup location {backup_path}. Error-msg: {e}")
             torch.save(state, backup_path)
 
@@ -302,6 +308,8 @@ class DDPGAgent:
             A tuple of tensors, that contain states, actions, rewards, next states, and information about if the
             task was completed at that point.
         '''
+        self._loggger.info("Updating the DDPG agent")
+
         states, actions, rewards, next_states, dones = experiences
         
         # --------------- Update the critic networks ------------------
@@ -328,6 +336,8 @@ class DDPGAgent:
         # ---------------- Update the target networks ------------------
         self.soft_update(self._critic_local, self._critic_target, self._tau)
         self.soft_update(self._actor_local, self._actor_target, self._tau)
+
+        self._logger.info("DDPG agent updated")
 
     def soft_update(self, local_network: nn.Module, target_network: nn.Module, tau: float) -> None:
         '''

@@ -1,23 +1,27 @@
+from time import time
 import torch
 import numpy as np
-import warnings
 import pathlib
 
 from models.gan import LSGAN
 from models.agent import DDPGAgent
 from environment.mujoco_env import MazeEnv
-from models.rl import Experience
 import utils
 
 from typing import Sequence, Optional, Union
 from os import PathLike
 import numpy.typing as npt
 
-MAX_T_STEPS: int = 500
-MAX_EPISODES: int = 10
+_MAX_T_STEPS: int = 500
+_MAX_EPISODES: int = 10
+
+_logger = utils.get_logger(__name__)
 
 
-def _eval_and_update_policy(agent: DDPGAgent, env: MazeEnv, goals: Sequence[npt.NDArray]) -> npt.NDArray[np.float32]:
+def _eval_and_update_policy(
+    agent: DDPGAgent, env: MazeEnv, goals: Sequence[npt.NDArray], 
+    episode_count: int, timestep_count: int
+    ) -> npt.NDArray[np.float32]:
     '''
     Evaluates the agents current policy for the current goals, and adds the experience to the 
     agents relay. If enough experiences are collected, the agent will update itself.
@@ -31,6 +35,10 @@ def _eval_and_update_policy(agent: DDPGAgent, env: MazeEnv, goals: Sequence[npt.
         to reach the goals
     goals: Sequence[npt.NDArray]
         The goals for the agent to reach.
+    episode_count: int
+        The amount of episodes evaluated
+    timestep_count: int
+        The maximum amount of timesteps during each episode 
 
     Returns
     -------
@@ -38,23 +46,24 @@ def _eval_and_update_policy(agent: DDPGAgent, env: MazeEnv, goals: Sequence[npt.
         The amount of times a given goal was reached, normalized to be in range (0, 1).
 
     '''
+    _logger.info("Evaluation and updating policy")
     env.goals = goals #Set the current goals for the agent.
-    for i in range(MAX_EPISODES):
+    for i in range(episode_count):
         state = env.reset()
-        for j in range(MAX_T_STEPS):
+        for j in range(timestep_count):
             action = agent.act(state) #Create the action based on the current state.
             next_state, reward, done = env.step(action)
-            
-            exp = Experience(state=state, action=action, reward=reward, next_state=next_state, done=done)
-            agent.learn(exp)
+    
+            agent.step(state, action, reward, next_state, done)
             #If any of the goals was achieved during the episode, we stop and start a new episode
             if done:
-                print(f"[Episode {i}]: Goal found in {j} timesteps")
+                _logger.info(f"(Episode {i}): Goal found in {j} timesteps")
                 break 
 
     # Check how many times each goal was reached during the training, 
     # and normalize the values between (0,1) for goal labeling
-    return env.achieved_goals_counts / MAX_EPISODES 
+    _logger.info("Evaluation & updating done")
+    return env.achieved_goals_counts / _MAX_EPISODES 
 
 
 def _update_replay(current_goals: torch.Tensor, old_goals: torch.Tensor, eps: float = 0.1) -> torch.Tensor:
@@ -86,7 +95,10 @@ def _update_replay(current_goals: torch.Tensor, old_goals: torch.Tensor, eps: fl
     return old_goals
 
 
-def _initialize_gan(gan: LSGAN, agent: DDPGAgent, env: MazeEnv, iter_count: int, goal_count: int) -> torch.Tensor:
+def _initialize_gan(
+    gan: LSGAN, agent: DDPGAgent, env: MazeEnv, iter_count: int, 
+    goal_count: int, episode_count: int, timestep_count: int
+    ) -> torch.Tensor:
     '''
     Initializes the Goal-GAN and produces somewhat easy goals for the agent to use at the start. 
     See Appendix A.2 from Florenso et al. 2018 for more detailed explanation of the problem solved here.
@@ -103,7 +115,10 @@ def _initialize_gan(gan: LSGAN, agent: DDPGAgent, env: MazeEnv, iter_count: int,
         The amount of iterations is used in the pre-training phase.
     goal_count: int
         The amount of goals to produce during each iteration.
-
+    episode_count: int
+        The amount of episodes evaluated on each set of goals.
+    timestep_count: int
+        The maximum amount of timesteps during each episode.
     Returns
     -------
     torch.Tensor:
@@ -112,12 +127,12 @@ def _initialize_gan(gan: LSGAN, agent: DDPGAgent, env: MazeEnv, iter_count: int,
 
     for i in range(iter_count):
         if (i+1)%10 == 0:
-            print(f"[i: {i}]")
+            _logger.info(f"Pretrain: iteration: {i}")
         starting_pos = torch.from_numpy(env.agent_pos)
         goals = torch.clamp(starting_pos + 0.1*torch.randn(goal_count, env.goal_size), *env.limits)
 
         #Train the agent with the randomly generated goals
-        returns = _eval_and_update_policy(agent, env, goals)
+        returns = _eval_and_update_policy(agent, env, goals, episode_count, timestep_count)
         labels = utils.label_goals(returns)
         gan.train(goals, labels)
 
@@ -129,7 +144,8 @@ def _initialize_gan(gan: LSGAN, agent: DDPGAgent, env: MazeEnv, iter_count: int,
 
 def train(
     gan: LSGAN, agent: DDPGAgent, env: MazeEnv, pretrain_iter_count: int, iter_count: int,
-    goal_count: int, save_after: Optional[int] = None, gan_base_path: Optional[Union[str, PathLike]] = None, 
+    goal_count: int, episode_count: int, timestep_count: int,
+    save_after: Optional[int] = None, gan_base_path: Optional[Union[str, PathLike]] = None, 
     ddpg_base_path: Optional[Union[str, PathLike]] = None
 ) -> None:
     '''
@@ -156,6 +172,10 @@ def train(
         The amount of actual training iterations used.
     goal_count: int
         The amount of goals generated per each iteration
+    episode_count: int
+        The amount of episodes evaluated on each set of goals
+    timestep_count: int
+        The maximum amount of timesteps on each episode 
     save_after: Optional[int]
         Define how often the models are saved (i.e. after how many iterations). If not 
         specified, the models won't be saved.
@@ -177,35 +197,34 @@ def train(
     random_goals_count = goal_count // 2
     
 
-    print(f"Starting pre-training")
+    _logger.info(f"Starting pre-training")
     old_goals = _initialize_gan(gan, agent, env, pretrain_iter_count, goal_count)
-
+    _logger.info("Ending pre-training")
         
-    print("Starting training")    
+    _logger.info("Starting training")    
     for i in range(iter_count):
         if (i + 1)%10 == 0:
-            print(f"[Iter: {i}]")
             utils.display_agent_and_goals(env.agent_pos, goals, env.limits, filepath=f"images/img_{i}.png", pos_label="Agent position", title=f"Iteration {i}", goal_label="goals")
-            
+            _logger.info(f"Training iteration {i}, created figure")
 
         #Sample noise
         z = torch.randn((goal_count, gan.generator_input_size)) 
 
         #Create goals from the noize
-        gan_goals = gan.generator_forward(z).detach()
+        gan_goals = gan.generate_goals(z).detach()
         rand_goals = torch.Tensor(random_goals_count, env.goal_size).uniform_(-1, 1)
         
         #Use 50% of random goals, and 50% of generated goals (See Appendix B.4 from Florensa et al. 2018)
         goals = torch.cat([gan_goals, utils.sample_tensor(old_goals, random_goals_count), rand_goals])
 
         #Evaluate & update the agent.
-        returns = _eval_and_update_policy(agent, env, goals)
+        returns = _eval_and_update_policy(agent, env, goals, episode_count, timestep_count)
 
         #Label the goals to be either in the GOID or not. Range 0.1 <= x <= 0.9 is used as in the original paper.
         labels = utils.label_goals(returns)
 
         if np.all(labels == 0):
-            warnings.warn(f"All labels 0 during training iteration {i+1}")
+            _logger.warning(f"All labels 0 during training iteration {i+1}")
 
         #Train the Goal GAN with the goals and their labels.
         gan.train(goals, labels)
@@ -215,12 +234,13 @@ def train(
         
         #Save the models
         if (i + 1) % save_after == 0:
-            print(f"[Iter: {i}]: Saving the models")
             ddpg_path = utils.add_to_path(ddpg_base_path, "iter_{i}")
             agent.save_model(ddpg_path)
+            _logger.info(f"Iteration {i}: Saved DDPG to {ddpg_path}")
 
             gan_path = utils.add_to_path(gan_base_path, "iter_{i}")
             gan.save_model(gan_path)
-
+            _logger.info(f"Iteration {i}: Saved gan to {gan_path}")
+    _logger.info("Training done!")
 
 

@@ -10,3 +10,6 @@ checkpoints/*
 
 #Possible logs files from mujoco
 MUJOCO_LOG.TXT
+
+#Log files from the script
+*.log

@@ -16,6 +16,9 @@ from typing import Tuple
 _ENV_NAME: str = "AntUMaze-v1"
 _GOAL_SIZE: int = 2
 
+_logger = utils.get_logger(__name__)
+
+
 def _create(env: str, generator_config: GANConfig, discriminator_config: GANConfig, ddpg_config: DDPGConfig, device: torch.device) -> Tuple[MazeEnv, DDPGAgent, LSGAN]:
     '''
     Creates the environment, agent and GAN model.
@@ -80,7 +83,7 @@ def _parse_and_train(args: argparse.Namespace) -> None:
         raise ValueError("If --save-after is specified, then both --gan-save-path and --agent-save--path must also be specified!")
 
     device = utils.get_device()
-    print(f"Using device: {utils.get_device_repr(device)}")
+    _logger.info(f"Using device: {utils.get_device_repr(device)}")
 
     #Create configurations for generator and discriminator, with the specified hyperparameters.
     generator_config = GANConfig(opt_lr=args.gen_lr, opt_alpha=args.gen_alpha, opt_momentum=args.gen_momentum)
@@ -97,21 +100,36 @@ def _parse_and_train(args: argparse.Namespace) -> None:
     #If the checkpoints where specified, load the models.
     if args.use_checkpoint:
         lsgan.load_model(args.gan_checkpoint)
+        _logger.info("Loaded GAN")
         agent.load_model(args.agent_checkpoint)
+        _logger.info("Loaded DDPG agent")
     
-    print(args.save_after, args.gan_save_path, args.agent_save_path)
     if args.save_after is None:
-        train(lsgan, agent, env, args.pretrain_iter_count, args.train_iter_count, args.goal_count)
+        train(
+            lsgan, agent, env, args.pretrain_iter_count, args.train_iter_count,
+            args.goal_count, args.episode_count, args.timestep_count
+        )
     else:
         train(
             lsgan, agent, env, args.pretrain_iter_count, args.train_iter_count,
-            args.goal_count, args.save_after, args.gan_save_path, args.agent_save_path
+            args.goal_count, args.episode_count, args.timestep_count, 
+            args.save_after, args.gan_save_path, args.agent_save_path
         )
-    
+    _logger.info("Exiting...")
+    env.close()
 
 def _parse_and_eval(args: argparse.Namespace) -> None:
+    '''
+    Parses the given arguments and then evaluates the trained model using the
+    specified parameters
+
+    Parameters
+    ----------
+    args: argparse.Namespace
+        A namespace object containing all the options passed to the CLI.
+    '''
     device = utils.get_device()
-    print(f"Using device: {utils.get_device_repr(device)}")
+    _logger.info(f"Using device: {utils.get_device_repr(device)}")
 
     #Create default configurations, as the model's will be loaded from the disc.
     generator_config = GANConfig()
@@ -126,11 +144,17 @@ def _parse_and_eval(args: argparse.Namespace) -> None:
     env, agent, lsgan = _create(args.env, generator_config, discriminator_config, ddpg_config, device)
 
     lsgan.load_model(args.gan_checkpoint, eval=True) #Set the model to evaluation mode
-    #TODO: create the eval function
-    eval_gan(lsgan, agent, env)
+    _logger.info("Loaded GAN")
 
+    eval_gan(
+        lsgan, agent, env, args.iter_count, args.episode_count, args.timestep_count,
+        args.goal_count, args.figure_save_path, args.data_save_path
+    )
+    _logger.info("Exiting")
+    env.close()
 
 def _add_ddpg_hyperparameters(group) -> None:
+    '''Adds the DDPG agent's hyperparameters to a given argument group'''
     group.add_argument("--actor-learning-rate",  type=float, default=1e-4, dest="actor_lr",  help=("Defines the learning rate used with the "
                                                                                                    "Actor's optimizer. Default %(default)s"))
     group.add_argument("--critic-learning-rate", type=float, default=1e-4, dest="critic_lr", help=("Defines the learning rate used with the "
@@ -161,14 +185,18 @@ def get_parser() -> ArgumentParser:
     
     # ---------------- CLI for training the network ------------------------------------
     train_parser = sub_parsers.add_parser("train", description="Train the Goal Gan")
-    train_parser.add_argument("--env",                            type=str,  default=_ENV_NAME, help=("The identifier of the used environment."
-                                                                                                    " Default %(default)s"))
-    train_parser.add_argument("--pretrain-iter-count",            type=int,  default=50,       help=("The amount of pretraining iterations used when"
-                                                                                                    " training the model. Default %(default)s"))
-    train_parser.add_argument("--train-iter-count",               type=int,  default=100,      help=("The amount training iterations done with "
-                                                                                                    "the model. Default %(default)s"))
-    train_parser.add_argument("--goal-count",                     type=int,  default=10,       help=("The amount of goals produced by the Goal"
-                                                                                                    " GAN during each iteration. Default %(default)s") )
+    train_parser.add_argument("--env",                 type=str,  default=_ENV_NAME, help=("The identifier of the used environment."
+                                                                                           " Default %(default)s"))
+    train_parser.add_argument("--pretrain-iter-count", type=int,  default=50,       help=("The amount of pretraining iterations used when"
+                                                                                          " training the model. Default %(default)s"))
+    train_parser.add_argument("--train-iter-count",    type=int,  default=100,      help=("The amount training iterations done with "
+                                                                                          "the model. Default %(default)s"))
+    train_parser.add_argument("--goal-count",          type=int,  default=10,       help=("The amount of goals produced by the Goal"
+                                                                                          " GAN during each iteration. Default %(default)s") )
+    train_parser.add_argument("--timestep-count",      type=int,  default=500,      help=("The amount of timesteps allowed in each"
+                                                                                          " episode. Default %(default)s "))
+    train_parser.add_argument("--episode-count",       type=int,  default=10,       help=("The amount of episodes evaluated on each"
+                                                                                          " set of goals"))
 
     # <<<<< Continue from previously trained model >>>>>
     continue_group = train_parser.add_argument_group("Continue training from previously saved model") 
@@ -225,14 +253,25 @@ def get_parser() -> ArgumentParser:
     # ----------------- CLI for evaluating the network ---------------------------------
     eval_parser = sub_parsers.add_parser("eval", description="Evaluate the Goal Gan")
     eval_parser.add_argument("gan-checkpoint",                       type=str,                    help=("Path to file containing"
-                                                                                                        " the Goal GAN model to evaluate")
-                            )
+                                                                                                        " the Goal GAN model to evaluate"))
     eval_parser.add_argument("--env",                                type=str, default=_ENV_NAME, help=("The identifier of the "
-                                                                                                        "used enviroment. Default %(default)s")
-                            )
-    eval_parser.add_argument("--create-figures", action="store_true",                             help="Create images from the evaluation")
-    eval_parser.add_argument("--figure-path",                        type=str,                    help=("path to directory, where the created"
-                                                                                                        " figures will be saved to.")
+                                                                                                        "used enviroment. Default %(default)s"))
+
+    # <<<<< Iteration counts for the evaluations >>>>>
+    eval_parser.add_argument("--iter-count",     type=int, default=500, help=("The amount of outer iterations done will training"
+                                                                             " the Agent. Default %(default)s"))
+    eval_parser.add_argument("--timestep-count", type=int, default=500, help=("The amount of timesteps allowed in each episode."
+                                                                             " Default %(default)s"))
+    eval_parser.add_argument("--episode-count",  type=int, default=10,  help=("The amount of episodes done on each set of goals."
+                                                                             " Default %(default)s"))
+    eval_parser.add_argument("--goal-count",     type=int, default=10,  help=("The amount of goals generated by the GAN during each"
+                                                                             " iteration. Default %(default)s"))
+    
+    # <<<<< Path where data & figures will be saved >>>>>
+    eval_parser.add_argument("--data-save-path",   type=str, default=None, help=("Path to file, where the generated data will be stored to."
+                                                                                " If not specified, the data won't be saved"))
+    eval_parser.add_argument("--figure-save-path", type=str, default=None, help=("path to directory, where the created figures "
+                                                                                "will be saved to. If not specified, the figures won't be created.")
                             )
     # <<<<< DDPG Hyperparameters >>>>>
     eval_ddpg_hp_group = eval_parser.add_argument_group("DDPG hyperparameters")

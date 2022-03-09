@@ -9,14 +9,17 @@ from typing import Iterable, Union, Tuple, Sequence, Optional
 from os import PathLike
 import numpy.typing as npt
 
+import logging
+
 
 Numeric = Union[float, int]
 
 #Some constants for doing visualizations
-_IMG_SIZE = (400, 400)
-_WIDTH = 100
-_HEIGHT = 250
-_BARRIER_WIDTH = 50
+_IMG_SIZE: Tuple[int, int] = (400, 400)
+_WIDTH: int = 100
+_HEIGHT: int = 250
+_BARRIER_WIDTH: int = 50
+_TIMESTAMP_FMT: str = "%Y-%m-%dT%H:%M:%S"
 
 
 def _rescale(data: Union[Numeric, npt.NDArray], old_range: Tuple[float, float], new_range: Tuple[float, float] = (0.0, 1.0)) -> Union[Numeric, npt.NDArray]:
@@ -40,7 +43,6 @@ def _rescale(data: Union[Numeric, npt.NDArray], old_range: Tuple[float, float], 
     return ((data - min_val) / (max_val - min_val))* (max(new_range) - min(new_range))
 
 
-
 def _create_env_image() -> npt.NDArray:
     '''
     Creates a conceptual image of the maze. Used
@@ -60,6 +62,19 @@ def _create_env_image() -> npt.NDArray:
     base_img[_IMG_SIZE[0] - _BARRIER_WIDTH:, :] = 0
     base_img[:, _IMG_SIZE[0] - _BARRIER_WIDTH: ] = 0
     return base_img
+
+
+def _set_logging_config() -> None:
+    '''Sets up the configuration for the logger '''
+    logging.basicConfig(
+        level=logging.INFO,
+        format="%(asctime)s %(module)s/%(funcName)s [%(levelname)s] %(message)s",
+        datefmt=_TIMESTAMP_FMT,
+        handlers= [
+            logging.FileHandler("training.log"), 
+            logging.StreamHandler()
+        ]
+    )    
 
 
 def label_goals(returns: Iterable[float], rmin=0.1, rmax=0.9) -> npt.NDArray[np.uint32]:
@@ -107,6 +122,7 @@ def get_device() -> torch.device:
     ''' Returns the device to use. Uses GPU, if available'''
     return torch.device("cuda" if torch.cuda.is_available() else "cpu")
 
+
 def get_device_repr(device: Union[str, torch.device]) -> str:
     '''
     Get a Human readable presentation of the used device.
@@ -123,7 +139,6 @@ def get_device_repr(device: Union[str, torch.device]) -> str:
     '''
     device = torch.device(device) if isinstance(device, str) else device
     return torch.cuda.get_device_name(device) if device.type == 'cuda' else "cpu"
-
 
 
 
@@ -233,7 +248,7 @@ def line_plot(x: npt.NDArray, y: npt.NDArray, filepath: Union[str, PathLike], la
     ax.legend()
     fig.savefig(filepath)
     plt.close(fig)     
-
+    
 
 def timestamp_path(path: Union[str, PathLike]) -> PathLike:
     '''
@@ -259,6 +274,7 @@ def timestamp_path(path: Union[str, PathLike]) -> PathLike:
     newname = f"{parts[0]}{now}.{'.'.join(parts[1:])}"
     return path.parent / newname
 
+
 def add_to_path(path: Union[str, PathLike], to_add: str) -> PathLike:
     '''
     Adds a string to the end of a filename (returned by pathlib.Path.name). 
@@ -283,3 +299,25 @@ def add_to_path(path: Union[str, PathLike], to_add: str) -> PathLike:
     assert len(parts) > 1, f"Couldn't find a suffix from the given path: {path}"
     newname = f"{parts[0]}_{to_add}.{''.join(parts[1:])}"
     return path.parent / newname
+
+
+def get_logger(name: str) -> logging.Logger:
+    '''
+    Returns a logger for a given name.
+
+    Parameters
+    ----------
+    name: str
+        The name of the logger, often same as the module.
+
+    Returns
+    -------
+    logging.Logger
+        The created/already existing logger.
+
+    '''
+    return logging.getLogger(name)
+
+
+#Make sure that the logger is initialized
+_set_logging_config()

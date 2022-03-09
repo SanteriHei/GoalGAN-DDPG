@@ -4,15 +4,13 @@ from torch import optim
 import numpy as np
 
 import pathlib
-import warnings
 from dataclasses import dataclass
 
 import numpy.typing as npt
 from os import PathLike
 from typing import Union
 
-from utils import timestamp_path
-
+import utils
 
 _BACKUP_PATH = pathlib.Path("checkpoints/backups/lsgan.tar")
 
@@ -129,6 +127,8 @@ class LSGAN:
         self._b = b
         self._c = c
 
+        self._logger = utils.get_logger(__name__)
+
         #Apply Xavier uniform weight initialization
         self._generator.apply(init_weights)
         self._discriminator.apply(init_weights)
@@ -152,16 +152,24 @@ class LSGAN:
         '''
         return self._generator_input_size
 
-    def generator_forward(self, x: torch.Tensor) -> torch.Tensor:
+    def generate_goals(self, z: torch.Tensor) -> torch.Tensor:
         '''
-        Applies the forward pass to the generator network.
+        Generates goals from a noise vector by 
+        applying the forward pass to the generator.
+        NOTE: the network should be set to evaluation mode before calling this
+
+        Parameters
+        ----------
+        z: torch.Tensor
+            The input to the generator. Usually noise vector.
+            see generator_input_size to create correct size noise.
 
         Returns
         -------
         torch.tensor
             The output of the generator network
         '''
-        return self._generator.forward(x)
+        return self._generator.forward(z)
 
     def save_model(self, path: Union[str, PathLike]) -> None:
         '''
@@ -197,8 +205,8 @@ class LSGAN:
         try: 
             torch.save(state, path)
         except Exception as e: #as torch doesn't speficy what exceptions can be thrown here, use catch all
-            backup_path = timestamp_path(_BACKUP_PATH)
-            warnings.warn(f"Error while trying to save the model to location {path}. Trying backup location {backup_path}. Error-msg: {e}")
+            backup_path = utils.timestamp_path(_BACKUP_PATH)
+            self._logger.warning(f"Error while trying to save the model to location {path}. Trying backup location {backup_path}. Error-msg: {e}")
             torch.save(state, backup_path)
 
     def load_model(self, path: Union[str, PathLike], eval: bool = False) -> None:
@@ -224,6 +232,7 @@ class LSGAN:
         path = pathlib.Path(path) if not isinstance(path, pathlib.PurePath) else path
 
         if not path.exists():
+            self._logger.error(f"Cannot found file at {path}")
             raise FileNotFoundError(f"Cannot found file at {path}")
         state = torch.load(path)
 
@@ -309,6 +318,7 @@ class LSGAN:
         '''
         y = torch.from_numpy(labels).unsqueeze(dim=-1) #Add 'dummy' dimension
 
+        self._logger.info(f"Training GAN for {n_iter} iterations")
         for _ in range(n_iter):
             
             #--------Update the Discriminator-----------

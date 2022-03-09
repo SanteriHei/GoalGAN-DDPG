@@ -6,6 +6,8 @@ import numpy as np
 from typing import Optional, Sequence, Tuple, Union
 import numpy.typing as npt
 
+import utils
+
 _POS_IDX: int = 2 #The first two elements in a observation are the position of the agent.
 
 class MazeEnv:
@@ -35,6 +37,9 @@ class MazeEnv:
         self._tol: float = tol
         self._reward_range: Tuple[float, float] = reward_range
         self._goal_size: int = goal_size if isinstance(goal_size, int) else goal_size[0] 
+
+        self._logger = utils.get_logger()
+
         self._initialize()
     
     def _initialize(self) -> None:
@@ -104,7 +109,8 @@ class MazeEnv:
 
         if self._achieved_goals_counts is None:
             self._achieved_goals_counts = np.zeros( (len(self._goals, ), ), dtype=np.float64)
-        self._achieved_goals_counts.fill(0,0)    
+        self._achieved_goals_counts.fill(0,0)
+        self._logger.info("Set new goals, and reseted achieved goals")
 
 
     @property
@@ -157,6 +163,7 @@ class MazeEnv:
         for i, g in enumerate(self._goals):
             assert g.shape == self._agent_pos.shape, "The shapes of the goals and agent positions don't match"
             if self._is_goal_reached(g):
+                self._logger.info("A goal was found in Maze")
                 self._achieved_goals[i] = True
                 self._achieved_goals_counts[i] += 1
                 goal_reached = True
@@ -178,6 +185,7 @@ class MazeEnv:
         '''
         obs = self._env.reset()
         self._agent_pos = obs[:_POS_IDX].copy()
+        self._logger.info("Environment reseted")
         assert self._agent_pos is not None, "The agent position was set to None!"
         return obs
 
