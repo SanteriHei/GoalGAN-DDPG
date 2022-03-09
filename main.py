@@ -64,9 +64,21 @@ def _create(env: str, generator_config: GANConfig, discriminator_config: GANConf
 
 
 def _parse_and_train(args: argparse.Namespace) -> None:
+    '''
+    Parses the given arguments and then trains the model's using the specified parameters
+
+    Parameters
+    ----------
+    args: argparse.Namespace
+        A namespace object containing all the options passed in the cli.
+
+    '''
     if args.use_checkpoint and (args.gan_checkpoint is None or args.agent_checkpoint is None):
         raise ValueError("If --use-checkpoint flag is set, then both --gan-checkpoint and --agent-checkpoint must be specified!")
     
+    if args.save_after is not None and (args.gan_save_path is None or args.agent_save_path is None):
+        raise ValueError("If --save-after is specified, then both --gan-save-path and --agent-save--path must also be specified!")
+
     device = utils.get_device()
     print(f"Using device: {utils.get_device_repr(device)}")
 
@@ -76,7 +88,7 @@ def _parse_and_train(args: argparse.Namespace) -> None:
 
     #Create configuration for the DDPG Agent with specified hyperparameters.
     ddpg_config = DDPGConfig(
-        actor_rl =args.actor_lr, critic_lr=args.critic_lr, weight_decay=args.weight_decay,
+        actor_lr=args.actor_lr, critic_lr=args.critic_lr, weight_decay=args.weight_decay,
         tau=args.tau, gamma=args.gamma, buffer_size=args.buffer_size, batch_size=args.batch_size
     )
 
@@ -87,8 +99,14 @@ def _parse_and_train(args: argparse.Namespace) -> None:
         lsgan.load_model(args.gan_checkpoint)
         agent.load_model(args.agent_checkpoint)
     
-    train(lsgan, agent, env, args.pretrain_iter_count, args.train_iter_count)
-    
+    print(args.save_after, args.gan_save_path, args.agent_save_path)
+    if args.save_after is None:
+        train(lsgan, agent, env, args.pretrain_iter_count, args.train_iter_count, args.goal_count)
+    else:
+        train(
+            lsgan, agent, env, args.pretrain_iter_count, args.train_iter_count,
+            args.goal_count, args.save_after, args.gan_save_path, args.agent_save_path
+        )
     
 
 def _parse_and_eval(args: argparse.Namespace) -> None:
@@ -101,7 +119,7 @@ def _parse_and_eval(args: argparse.Namespace) -> None:
     
     #Create configuration for the DDPG Agent with specified hyperparameters.
     ddpg_config = DDPGConfig(
-        actor_rl =args.actor_lr, critic_lr=args.critic_lr, weight_decay=args.weight_decay,
+        actor_lr=args.actor_lr, critic_lr=args.critic_lr, weight_decay=args.weight_decay,
         tau=args.tau, gamma=args.gamma, buffer_size=args.buffer_size, batch_size=args.batch_size
     )
 
@@ -143,14 +161,14 @@ def get_parser() -> ArgumentParser:
     
     # ---------------- CLI for training the network ------------------------------------
     train_parser = sub_parsers.add_parser("train", description="Train the Goal Gan")
-
     train_parser.add_argument("--env",                            type=str,  default=_ENV_NAME, help=("The identifier of the used environment."
                                                                                                     " Default %(default)s"))
-    
     train_parser.add_argument("--pretrain-iter-count",            type=int,  default=50,       help=("The amount of pretraining iterations used when"
                                                                                                     " training the model. Default %(default)s"))
     train_parser.add_argument("--train-iter-count",               type=int,  default=100,      help=("The amount training iterations done with "
                                                                                                     "the model. Default %(default)s"))
+    train_parser.add_argument("--goal-count",                     type=int,  default=10,       help=("The amount of goals produced by the Goal"
+                                                                                                    " GAN during each iteration. Default %(default)s") )
 
     # <<<<< Continue from previously trained model >>>>>
     continue_group = train_parser.add_argument_group("Continue training from previously saved model") 
@@ -166,7 +184,7 @@ def get_parser() -> ArgumentParser:
 
     # <<<<< Saving the model's during training >>>>>
     saving_group = train_parser.add_argument_group("Saving model during training") 
-    saving_group.add_argument("--safe-after",      type=int, default=50, help=( "The amount of iterations after which the"
+    saving_group.add_argument("--save-after",      type=int, default=None, help=( "The amount of iterations after which the"
                                                                               " models are saved in. Default %(default)s"))
     saving_group.add_argument("--gan-save-path",   type=str,             help=("Path to file, where the gan-model files "
                                                                               "should be saved to. Must be specified if "

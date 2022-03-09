@@ -6,6 +6,8 @@ import numpy as np
 from typing import Optional, Sequence, Tuple, Union
 import numpy.typing as npt
 
+_POS_IDX: int = 2 #The first two elements in a observation are the position of the agent.
+
 class MazeEnv:
     '''
     Creates a Maze enviroment. This is done by adding a light wrapper to a OpenAI gym enviroment
@@ -40,26 +42,9 @@ class MazeEnv:
         Initializes the enviroment, by reseting the enviroment, 
         and taking an action
         '''
-        self._env.reset()
-        #Take a 'zero' action
-        _, pos = self._zero_action()
-        self._agent_pos = pos
+        obs = self._env.reset()
+        self._agent_pos = obs[:_POS_IDX].copy()
         assert self._agent_pos is not None, "The agent position was not set!"
-
-    def _zero_action(self) -> Tuple[np.ndarray, np.ndarray]:
-        ''' 
-        Takes a 'zero action'. Making a real zero action is not possible
-            in OpenAI gym, so making as small of a movement as possible is the best
-            case.
-        
-        Returns
-        -------
-        Tuple[np.ndarray, np.ndarray]
-            Returns the observation from the action, and the current position of the agent.
-        '''
-        zero_act = np.zeros(self._env.action_space.shape)
-        obs, _, _, info = self._env.step(zero_act)
-        return obs, info.get("position")
 
     def _is_goal_reached(self, goal: npt.NDArray) -> bool:
         '''
@@ -96,16 +81,24 @@ class MazeEnv:
     @goals.setter
     def goals(self, new_goals: Sequence[npt.ArrayLike]) -> None:
         '''
-        Sets the current goals for the agent.
+        Sets the current goals for the agent, and 
+        resets the statistics of the goals
 
         Parameters
         ----------
-        new_goals: Sequence[np.ndarray]
+        new_goals: Sequence[npt.NDArray]
             The new goals to use in the enviroment
         '''
         self._goals = new_goals
-        self._achieved_goals_counts = np.zeros((len(self._goals, )), dtype=np.float32)
-        self._achieved_goals = np.zeros((len(self._goals), ), dtype=np.bool)
+
+        if self._achieved_goals is None:
+            self._achieved_goals = np.zeros( (len(self.__goals), ), dtype=bool)
+        self.achieved_goals.fill(False)
+
+        if self._achieved_goals_counts is None:
+            self._achieved_goals_counts = np.zeros( (len(self._goals, ), ), dtype=np.float64)
+        self._achieved_goals_counts.fill(0,0)    
+
 
     @property
     def agent_pos(self) -> npt.NDArray:
@@ -120,7 +113,7 @@ class MazeEnv:
 
     @property
     def achieved_goals_counts(self) -> npt.NDArray[np.float32]:
-        ''' Returns a list specifying how many times each goal was reached'''
+        ''' Returns an array specifying how many times each goal was reached'''
         return self._achieved_goals_counts
 
     @property
@@ -176,10 +169,8 @@ class MazeEnv:
         npt.NDArray
             The observation resulted from the reset
         '''
-        self._env.reset()
-        obs, pos = self._zero_action()
-        self._agent_pos = pos
-
+        obs = self._env.reset()
+        self._agent_pos = obs[:_POS_IDX].copy()
         assert self._agent_pos is not None, "The agent position was set to None!"
         return obs
 

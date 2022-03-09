@@ -108,7 +108,7 @@ class DDPGAgent:
         self._tau: float = config.tau
 
 
-    def _check_dim_and_unwrap(value: Union[int, Tuple[int]]) -> int:
+    def _check_dim_and_unwrap(self, value: Union[int, Tuple[int]]) -> int:
         '''
         Unwraps the possible tuple values to int's and checks that their dimensionality
         is 1. 
@@ -172,11 +172,14 @@ class DDPGAgent:
             clipped to to be in range of values defined in the range parameter.
         '''
         acts = torch.zeros((1, self._action_size))
+
         #Evaluation mode for the local actor
-        self.actor_local.eval()
+        self._actor_local.eval()
         with torch.no_grad():
-            acts[:] = self.actor_local(state)
-        self.actor_local.train()
+            acts[:] = self._actor_local(state)
+        
+        self._actor_local.train()
+        
         if use_noise:
             acts += self._noise.sample()
         return torch.clip(acts, *range)

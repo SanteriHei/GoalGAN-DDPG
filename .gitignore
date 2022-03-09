@@ -1,5 +1,12 @@
 #Python caches
 **/__pycache__/*
 
+#Temporary files that will be moved in the future
 scenes/*
 test.py
+
+#Saved model checkpoints
+checkpoints/*
+
+#Possible logs files from mujoco
+MUJOCO_LOG.txt

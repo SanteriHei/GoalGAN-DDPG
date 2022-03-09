@@ -6,6 +6,7 @@ import pathlib
 from models.gan import LSGAN
 from models.agent import DDPGAgent
 from environment.mujoco_env import MazeEnv
+from models.rl import Experience
 import utils
 
 from typing import Sequence, Optional, Union
@@ -16,9 +17,10 @@ MAX_T_STEPS: int = 500
 MAX_EPISODES: int = 10
 
 
-def _eval_policy(agent, env, goals: Sequence[npt.NDArray]) -> npt.NDArray[np.float32]:
+def _eval_and_update_policy(agent: DDPGAgent, env: MazeEnv, goals: Sequence[npt.NDArray]) -> npt.NDArray[np.float32]:
     '''
-    Evaluates the agents current policy for the current goals
+    Evaluates the agents current policy for the current goals, and adds the experience to the 
+    agents relay. If enough experiences are collected, the agent will update itself.
 
     Parameters
     ----------
@@ -27,29 +29,33 @@ def _eval_policy(agent, env, goals: Sequence[npt.NDArray]) -> npt.NDArray[np.flo
     env
         The enviroment, where the policy agent will try 
         to reach the goals
-    goals: Sequence[np.ndarray]
+    goals: Sequence[npt.NDArray]
         The goals for the agent to reach.
-    
+
     Returns
     -------
-    np.ndarray
+    np.NDArray[np.float32]
         The amount of times a given goal was reached, normalized to be in range (0, 1).
 
     '''
     env.goals = goals #Set the current goals for the agent.
     for i in range(MAX_EPISODES):
         state = env.reset()
-        for _ in range(MAX_T_STEPS):
+        for j in range(MAX_T_STEPS):
             action = agent.act(state) #Create the action based on the current state.
-            state, _, done = env.step(action)
+            next_state, reward, done = env.step(action)
+            
+            exp = Experience(state=state, action=action, reward=reward, next_state=next_state, done=done)
+            agent.learn(exp)
             #If any of the goals was achieved during the episode, we stop and start a new episode
             if done:
+                print(f"[Episode {i}]: Goal found in {j} timesteps")
                 break 
 
-    counts = env.achieved_goal_counts() #Check how many times each goal was reached during the training
-    return counts/MAX_EPISODES #Normalize the values to be between (0,1) for goal labeling
+    # Check how many times each goal was reached during the training, 
+    # and normalize the values between (0,1) for goal labeling
+    return env.achieved_goals_counts / MAX_EPISODES 
 
-    
 
 def _update_replay(current_goals: torch.Tensor, old_goals: torch.Tensor, eps: float = 0.1) -> torch.Tensor:
     '''
@@ -78,6 +84,47 @@ def _update_replay(current_goals: torch.Tensor, old_goals: torch.Tensor, eps: fl
         if not is_close:
             old_goals = torch.cat((g.view(-1), old_goals))
     return old_goals
+
+
+def _initialize_gan(gan: LSGAN, agent: DDPGAgent, env: MazeEnv, iter_count: int, goal_count: int) -> torch.Tensor:
+    '''
+    Initializes the Goal-GAN and produces somewhat easy goals for the agent to use at the start. 
+    See Appendix A.2 from Florenso et al. 2018 for more detailed explanation of the problem solved here.
+
+    Parameters
+    ----------
+    gan: LSGAN
+        The GAN network used in the goal gan
+    agent: DDPGAgent
+        The agent used explore the environment.
+    env: MazeEnv
+        The environment, where the goals are produced to.
+    iter_count: int
+        The amount of iterations is used in the pre-training phase.
+    goal_count: int
+        The amount of goals to produce during each iteration.
+
+    Returns
+    -------
+    torch.Tensor:
+        The goals that should be suitable for the agent.
+    '''
+
+    for i in range(iter_count):
+        if (i+1)%10 == 0:
+            print(f"[i: {i}]")
+        starting_pos = torch.from_numpy(env.agent_pos)
+        goals = torch.clamp(starting_pos + 0.1*torch.randn(goal_count, env.goal_size), min=-1, max=1)
+
+        #Train the agent with the randomly generated goals
+        returns = _eval_and_update_policy(agent, env, goals)
+        labels = utils.label_goals(returns)
+        gan.train(goals, labels)
+
+    #After the Policy is trained with the random goals, we choose random, easy goals from the close neighborhood of the agent.
+    env.reset()
+    goals = torch.from_numpy(env.agent_pos).unsqueeze(0) + 0.1*torch.randn(goal_count, env.goal_size)
+    return torch.clamp(goals, -1, 1)
 
 
 def train(
@@ -128,45 +175,29 @@ def train(
 
     #50% gan generated goals and 50% of random goals
     random_goals_count = goal_count // 2
-    dim_env_goal_space = 0
-        
-    #Initially, the policy is trained using only random goals
+    
+
     print(f"Starting pre-training")
-    for i in range(pretrain_iter_count):
-        if (i + 1)%10 == 0:
-            print(f"[Iter: {i}]")
+    old_goals = _initialize_gan(gan, agent, env, pretrain_iter_count, goal_count)
 
-        starting_pos = torch.from_numpy(env.agent_pos)
-        goals = torch.clamp(starting_pos + 0.1*torch.randn(goal_count, dim_env_goal_space), min=-1, max=1) #Clamp values between -1 and 1
         
-        #Train the agent with the random goals, and "update the policy"
-        agent.learn(goals)
-        returns = _eval_policy(agent, env, goals)
-        labels = utils.label_goals(returns)
-        gan.train(goals, labels)
-
-    old_goals = None
-
     print("Starting training")    
     for i in range(iter_count):
         if (i + 1)%10 == 0:
             print(f"[Iter: {i}]")
 
         #Sample noise
-        z = torch.randn((goal_count, gan.generator_input_dim())) 
+        z = torch.randn((goal_count, gan.generator_input_size)) 
 
-        #Create goals fromt the noize
+        #Create goals from the noize
         gan_goals = gan.generator_forward(z).detach()
-        rand_goals = torch.Tensor(random_goals_count, dim_env_goal_space).uniform_(-1, 1)
+        rand_goals = torch.Tensor(random_goals_count, env.goal_size).uniform_(-1, 1)
         
         #Use 50% of random goals, and 50% of generated goals (See Appendix B.4 from Florensa et al. 2018)
         goals = torch.cat([gan_goals, utils.sample_tensor(old_goals, random_goals_count), rand_goals])
 
-        #Update the current policy by training the agent.
-        agent.learn(goals)
-
-        #Evaluate the agent on the same goals?
-        returns = _eval_policy(agent, env, goals)
+        #Evaluate & update the agent.
+        returns = _eval_and_update_policy(agent, env, goals)
 
         #Label the goals to be either in the GOID or not. Range 0.1 <= x <= 0.9 is used as in the original paper.
         labels = utils.label_goals(returns)
