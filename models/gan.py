@@ -312,7 +312,7 @@ class LSGAN:
         ----------
         goals: torch.Tensor
             The current goals
-        labels: npt.NDArray[np.uint32]
+        labels: npt.NDArray[np.int32]
             The goals for the goals. 1 means that the goals was in GOID, 0 that it wasn't, i.e. 
             the goal was either too easy or too difficult for the agent.
         n_iter: int, Optional
@@ -321,7 +321,6 @@ class LSGAN:
         y = torch.from_numpy(labels).unsqueeze(dim=-1).float().to(self._device) #Add 'dummy' dimension
         
         goals = goals.float()
-
         if goals.device != self._device:
             goals = goals.to(self._device)
 

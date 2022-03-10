@@ -102,14 +102,9 @@ class MazeEnv:
             The new goals to use in the enviroment
         '''
         self._goals = new_goals
+        self._achieved_goals = np.zeros( (len(self._goals), ), dtype=bool)
+        self._achieved_goals_counts = np.zeros ( len(self._goals, ), dtype=np.float32)
 
-        if self._achieved_goals is None:
-            self._achieved_goals = np.zeros( (len(self._goals), ), dtype=bool)
-        self.achieved_goals.fill(False)
-
-        if self._achieved_goals_counts is None:
-            self._achieved_goals_counts = np.zeros( (len(self._goals, ), ), dtype=np.float64)
-        self._achieved_goals_counts.fill(0.0)
         self._logger.info("Set new goals, and reseted achieved goals")
 
 
@@ -185,7 +180,7 @@ class MazeEnv:
         '''
         obs = self._env.reset()
         self._agent_pos = obs[:_POS_IDX].copy()
-        self._logger.info("Environment reseted")
+        #self._logger.info("Environment reseted")
         assert self._agent_pos is not None, "The agent position was set to None!"
         return obs
 

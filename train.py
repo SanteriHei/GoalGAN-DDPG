@@ -89,10 +89,10 @@ def _update_replay(current_goals: torch.Tensor, old_goals: torch.Tensor, eps: fl
     for g in current_goals:
         #TODO: better mechanism for this loop thing
         is_close = min((torch.dist(g, old_g) for old_g in old_goals)) < eps
-        
+    
         #If the goal isn't close to the old, add it to the list of old goals
         if not is_close:
-            old_goals = torch.cat((g.view(-1), old_goals))
+            old_goals = torch.cat((g.unsqueeze(-1).T, old_goals))
     return old_goals
 
 
@@ -134,7 +134,6 @@ def _initialize_gan(
         
         #Train the agent with the randomly generated goals
         returns = _eval_and_update_policy(agent, env, goals.detach().cpu().numpy(), episode_count, timestep_count)
-        
         #Label the goals and train the GAN
         labels = utils.label_goals(returns)
         gan.train(goals, labels)
@@ -197,7 +196,8 @@ def train(
     gan_base_path = pathlib.Path(gan_base_path) if not isinstance(gan_base_path, pathlib.PurePath) else gan_base_path 
 
     #50% gan generated goals and 50% of random goals
-    random_goals_count = goal_count // 2
+    random_goal_count = goal_count // 2
+    gan_goal_count = goal_count // 2
     
     #Save the mean value of the returns to plot a "coverage" graph
     avg_coverages = np.zeros((iter_count, ), dtype=np.float64)
@@ -209,24 +209,25 @@ def train(
     _logger.info("Starting training")    
     for i in range(iter_count):
         if (i + 1)%10 == 0:
-            utils.display_agent_and_goals(env.agent_pos, goals, env.limits, filepath=f"images/img_{i}.png", pos_label="Agent position", title=f"Iteration {i}", goal_label="goals")
+            utils.display_agent_and_goals(env.agent_pos, goals.detach().cpu().numpy(), env.limits, filepath=f"images/img_{i}.png", pos_label="Agent position", title=f"Iteration {i}", goal_label="goals")
             _logger.info(f"Training iteration {i}, created figure")
 
         #Sample noise
-        z = torch.randn((goal_count, gan.generator_input_size)) 
+        z = torch.randn((gan_goal_count, gan.generator_input_size)) 
 
         #Create goals from the noize
         gan_goals = gan.generate_goals(z).detach()
-        rand_goals = torch.Tensor(random_goals_count, env.goal_size).uniform_(-1, 1)
+
+        #Ensure that all goals are in same device
+        rand_goals = torch.Tensor(random_goal_count, env.goal_size).uniform_(-1, 1).to(gan_goals.device)
+        old_goals = old_goals.to(gan_goals.device)
         
         #Use 50% of random goals, and 50% of generated goals (See Appendix B.4 from Florensa et al. 2018)
-        goals = torch.cat([gan_goals, utils.sample_tensor(old_goals, random_goals_count), rand_goals])
+        goals = torch.cat([gan_goals, utils.sample_tensor(old_goals, random_goal_count), rand_goals])
 
         #Evaluate & update the agent.
         returns = _eval_and_update_policy(agent, env, goals.detach().cpu().numpy(), episode_count, timestep_count)
-
         avg_coverages[i] = np.mean(returns)
-
 
         #Label the goals to be either in the GOID or not. Range 0.1 <= x <= 0.9 is used as in the original paper.
         labels = utils.label_goals(returns)
