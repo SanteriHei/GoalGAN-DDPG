@@ -103,7 +103,7 @@ def eval_gan(
     if figure_save_path is not None:
         fig_path = utils.timestamp_path(figure_save_path)
         x = np.arange(0, max_iter, 1)
-        utils.line_plot(x, avg_coverages, fig_path)
+        utils.line_plot_1d(x, avg_coverages, fig_path, title="Evaluation coverages", xlabel="Iteration", ylabel="Avg coverage")
         _logger.info(f"Figure saved to {fig_path}")
     _logger.info("Evaluation done")
 

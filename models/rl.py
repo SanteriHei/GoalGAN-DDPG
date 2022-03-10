@@ -2,12 +2,15 @@ import torch
 import torch.nn.functional as F
 from torch import nn
 import copy
-
 import numpy as np
 import random
 
-from typing import Deque, Union, Tuple, Sequence
 from collections import deque, namedtuple
+
+from typing import Deque, Union, Tuple, Sequence
+import numpy.typing as npt
+
+
 
 #Note: The implementation presented here is HEAVILY "inspired" 
 #by this repo: https://github.com/xkiwilabs/DDPG-using-PyTorch-and-ML-Agents
@@ -74,17 +77,22 @@ class MemoryBuffer:
             experience replay, where each value is a tensor with shape (batch_size, )
         '''
         experiences = random.sample(self._buffer, k=self._batch_size)
-        states = torch.zeros(self._batch_size)
-        actions = torch.zeros(self._batch_size)
+        action_size = experiences[0].action.shape[0]
+        state_size = experiences[0].state.shape[0]
+
+
+        #Create memory for the samples
+        states = torch.zeros(self._batch_size, state_size)
+        actions = torch.zeros(self._batch_size, action_size)
         rewards = torch.zeros(self._batch_size)
-        next_states = torch.zeros(self._batch_size)
+        next_states = torch.zeros(self._batch_size, state_size)
         dones = torch.zeros(self._batch_size)
         
         for i,e in enumerate(experiences):
-            states[i] = e.state
-            actions[i] = e.action
+            states[i] = torch.from_numpy(e.state)
+            actions[i] = torch.from_numpy(e.action)
             rewards[i] = e.reward
-            next_states[i] = e.next_state
+            next_states[i] = torch.from_numpy(e.next_state)
             dones[i] = int(e.done)
 
         states = states.float().to(self._device)
@@ -193,7 +201,7 @@ class Critic(nn.Module):
     state_size: int
         The dimension of the states
     action_size: int
-        The dimenaion of the actions
+        The dimension of the actions
     fsc1_units: int, Optional
         The amount of units in the first hidden layer. Default 256
     fsc2_units: int, Optional
@@ -276,7 +284,7 @@ class OUNoise:
         self._sigma = max(self._sigma_min, self._sigma*self._sigma_decay)
         
 
-    def sample(self) -> np.ndarray:
+    def sample(self) -> npt.NDArray:
         '''
         Applies the OU process, and samples the random number generator to produce
         sample from this process

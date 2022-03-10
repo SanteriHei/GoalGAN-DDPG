@@ -77,7 +77,7 @@ def _set_logging_config() -> None:
     )    
 
 
-def label_goals(returns: Iterable[float], rmin=0.1, rmax=0.9) -> npt.NDArray[np.uint32]:
+def label_goals(returns: Iterable[float], rmin=0.1, rmax=0.9) -> npt.NDArray[np.int32]:
     '''
     Labels goals based on if they are in the valid range
     
@@ -95,7 +95,7 @@ def label_goals(returns: Iterable[float], rmin=0.1, rmax=0.9) -> npt.NDArray[np.
     np.ndarray:
         A numpy array of ints, where 1 means that return value was in range [rmin, rmax]. 
     '''
-    return np.ndarray([int(rmin <= r <= rmax) for r in returns], dtype=np.uint32)
+    return np.array([int(rmin <= r <= rmax) for r in returns], dtype=np.int32)
 
 
 def sample_tensor(x: torch.Tensor, amount: int) -> torch.Tensor:
@@ -208,6 +208,55 @@ def display_agent_and_goals(agent_pos: npt.NDArray, goals: npt.ArrayLike, coord_
     if fig is not None and filepath is not None:
         fig.savefig(filepath)    
         plt.close()
+
+
+
+def line_plot_1d(x: npt.NDArray, y: npt.NDArray, filepath: Union[str, PathLike], label: Optional[str] = None, **kwargs) -> None:
+    '''
+    Creates a 1d line-plot with standard deviation interval around the plotted line.
+
+    Parameters
+    ----------
+    x: npt.NDArray
+        The x values. Should be an 1D  array
+    y: npt.NDArray
+        The actual data to plot. Should be an 1D array.
+    filepath: str | PathLike
+        Path to the location where the figure will be stored.
+    label: Optional[str]
+        Label for the line. Default None
+    kwargs: Named arguments
+        title: str
+            The title of the plot. Default Results
+        xlabel: str
+            The x label for the plot. Default x
+        ylabel: str
+            The y label for the plot. Default y
+        alpha: float
+            The opacity of the fill. Default 0.2
+        Other named arguments will be passed to plot method.
+    '''
+    
+    axis = y.shape.index(max(y.shape))
+    std = y.std(axis=axis)
+
+    title = kwargs.pop("title", "Results")
+    xlabel = kwargs.pop("xlabel", "x")
+    ylabel = kwargs.pop("ylabel", "y")
+    alpha = kwargs.pop("alpha", 0.2)
+
+    fig, ax = plt.subplots(1,1,  figsize=(10, 10))
+    ax.plot(x, y, label=label, **kwargs)
+    ax.set_title(title)
+    ax.set_xlabel(xlabel)
+    ax.set_ylabel(ylabel)
+    ax.fill_between(x, y, y + std, antialiased=True, alpha=alpha)
+    ax.fill_between(x, y, y - std, antialiased=True, alpha=alpha)
+
+    if label is not None:
+        ax.legend()
+    fig.savefig(filepath)
+    plt.close(fig)  
 
 
 def line_plot(x: npt.NDArray, y: npt.NDArray, filepath: Union[str, PathLike], labels: Sequence[str], **kwargs) -> None:

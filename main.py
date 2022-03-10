@@ -196,7 +196,7 @@ def get_parser() -> ArgumentParser:
     train_parser.add_argument("--timestep-count",      type=int,  default=500,      help=("The amount of timesteps allowed in each"
                                                                                           " episode. Default %(default)s "))
     train_parser.add_argument("--episode-count",       type=int,  default=10,       help=("The amount of episodes evaluated on each"
-                                                                                          " set of goals"))
+                                                                                          " set of goals. Default %(default)s"))
 
     # <<<<< Continue from previously trained model >>>>>
     continue_group = train_parser.add_argument_group("Continue training from previously saved model") 

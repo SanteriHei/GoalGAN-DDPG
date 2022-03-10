@@ -106,7 +106,7 @@ class LSGAN:
         ).to(self._device)
         
         self._discriminator = Discriminator(
-            discriminator_config.layer_count, generator_config.input_size, 
+            discriminator_config.layer_count, discriminator_config.input_size, 
             discriminator_config.hidden_size, discriminator_config.output_size
         ).to(self._device)
 
@@ -169,6 +169,8 @@ class LSGAN:
         torch.tensor
             The output of the generator network
         '''
+        if z.device != self._device:
+            z = z.to(self._device)
         return self._generator.forward(z)
 
     def save_model(self, path: Union[str, PathLike]) -> None:
@@ -280,7 +282,7 @@ class LSGAN:
         '''
         #Short hands to make the formula easier to read
         g = self._generator
-        d = self._discriminator 
+        d = self._discriminator
         return y * (d.forward(goals) - self._b)**2 + (1-y) * (d.forward(goals) - self._a)**2 + (d.forward(g.forward(z)) - self._a)**2
 
     def _generator_loss(self, z: torch.Tensor) -> torch.Tensor:
@@ -302,7 +304,7 @@ class LSGAN:
         d = self._discriminator
         return (d.forward(g.forward(z)) - self._c)**2
 
-    def train(self, goals: torch.Tensor, labels: npt.NDArray[np.uint32], n_iter: int = 10) -> None:
+    def train(self, goals: torch.Tensor, labels: npt.NDArray[np.int32], n_iter: int = 10) -> None:
         '''
         Trains the gan network for given amount of iterations
 
@@ -316,7 +318,12 @@ class LSGAN:
         n_iter: int, Optional
             The amount of iterations that the GAN is trained for. Default 10.
         '''
-        y = torch.from_numpy(labels).unsqueeze(dim=-1) #Add 'dummy' dimension
+        y = torch.from_numpy(labels).unsqueeze(dim=-1).float().to(self._device) #Add 'dummy' dimension
+        
+        goals = goals.float()
+
+        if goals.device != self._device:
+            goals = goals.to(self._device)
 
         self._logger.info(f"Training GAN for {n_iter} iterations")
         for _ in range(n_iter):
@@ -324,7 +331,7 @@ class LSGAN:
             #--------Update the Discriminator-----------
 
             #The size of the noise must be same as the input size of the generator
-            zs = torch.randn(len(labels), self._generator_input_size)             
+            zs = torch.randn(len(labels), self._generator_input_size).to(self._device)          
             self._discriminator.zero_grad()
             discriminator_loss = torch.mean(self._discriminator_loss(y, zs, goals))
             discriminator_loss.backward()
@@ -332,18 +339,12 @@ class LSGAN:
 
             #---------Update the Generator-------------
    
-            zs = torch.randn(len(labels), self._generator_input_size)
+            zs = torch.randn(len(labels), self._generator_input_size).to(self._device)
             self._generator.zero_grad()
 
             generator_loss = torch.mean(self._generator_loss(zs))
             generator_loss.backward()
             self._generator_optimizer.step()
-
-            #TODO: What is the point of variance here?
-            #var = self._generator.variance_coeff
-            #g_loss = torch.mean(self._discriminator(self._generator(zs))**2) + var/torch.var(self._generator(zs), dim=0).mean()
-            #g_loss.backward()
-            #self._generator_optimizer.step()
 
  
 

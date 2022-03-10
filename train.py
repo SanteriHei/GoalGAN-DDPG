@@ -51,10 +51,11 @@ def _eval_and_update_policy(
     for i in range(episode_count):
         state = env.reset()
         for j in range(timestep_count):
-            action = agent.act(state) #Create the action based on the current state.
-            next_state, reward, done = env.step(action)
-    
-            agent.step(state, action, reward, next_state, done)
+            action = agent.act(torch.from_numpy(state)) #Create the action based on the current state.
+            cpu_action = action.detach().cpu().numpy().squeeze()
+            next_state, reward, done = env.step(cpu_action)
+
+            agent.step(state, cpu_action, reward, next_state, done)
             #If any of the goals was achieved during the episode, we stop and start a new episode
             if done:
                 _logger.info(f"(Episode {i}): Goal found in {j} timesteps")
@@ -130,9 +131,11 @@ def _initialize_gan(
             _logger.info(f"Pretrain: iteration: {i}")
         starting_pos = torch.from_numpy(env.agent_pos)
         goals = torch.clamp(starting_pos + 0.1*torch.randn(goal_count, env.goal_size), *env.limits)
-
+        
         #Train the agent with the randomly generated goals
-        returns = _eval_and_update_policy(agent, env, goals, episode_count, timestep_count)
+        returns = _eval_and_update_policy(agent, env, goals.detach().cpu().numpy(), episode_count, timestep_count)
+        
+        #Label the goals and train the GAN
         labels = utils.label_goals(returns)
         gan.train(goals, labels)
 
@@ -196,9 +199,11 @@ def train(
     #50% gan generated goals and 50% of random goals
     random_goals_count = goal_count // 2
     
+    #Save the mean value of the returns to plot a "coverage" graph
+    avg_coverages = np.zeros((iter_count, ), dtype=np.float64)
 
     _logger.info(f"Starting pre-training")
-    old_goals = _initialize_gan(gan, agent, env, pretrain_iter_count, goal_count)
+    old_goals = _initialize_gan(gan, agent, env, pretrain_iter_count, goal_count, episode_count, timestep_count)
     _logger.info("Ending pre-training")
         
     _logger.info("Starting training")    
@@ -218,7 +223,10 @@ def train(
         goals = torch.cat([gan_goals, utils.sample_tensor(old_goals, random_goals_count), rand_goals])
 
         #Evaluate & update the agent.
-        returns = _eval_and_update_policy(agent, env, goals, episode_count, timestep_count)
+        returns = _eval_and_update_policy(agent, env, goals.detach().cpu().numpy(), episode_count, timestep_count)
+
+        avg_coverages[i] = np.mean(returns)
+
 
         #Label the goals to be either in the GOID or not. Range 0.1 <= x <= 0.9 is used as in the original paper.
         labels = utils.label_goals(returns)
@@ -241,6 +249,9 @@ def train(
             gan_path = utils.add_to_path(gan_base_path, "iter_{i}")
             gan.save_model(gan_path)
             _logger.info(f"Iteration {i}: Saved gan to {gan_path}")
+    
+    x = np.arange(0, iter_count)
+    utils.line_plot_1d(x, avg_coverages, "figures/training_coverage.png", title="Training coverage", xlabel="Iterations", ylabel="Avg coverage")
     _logger.info("Training done!")
 
 

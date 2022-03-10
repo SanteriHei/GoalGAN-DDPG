@@ -13,7 +13,6 @@ from os import PathLike
 import numpy.typing as npt
 
 import pathlib
-import warnings
 from dataclasses import dataclass
 
 #Note: The implementation presented here is HEAVILY "inspired" 
@@ -87,6 +86,7 @@ class DDPGAgent:
         assert self._state_size != _NOT_SET, f"No state size was specified!"
         assert self._action_size != _NOT_SET, f"No action size was specified!"
 
+
         #Actor network
         self._actor_local = Actor(self._state_size, self._action_size).to(self._device)
         self._actor_target = Actor(self._state_size, self._action_size).to(self._device)
@@ -153,7 +153,6 @@ class DDPGAgent:
         self._buffer.append(exp)
 
         if len(self._buffer) > self._buffer.batch_size:
-            self._logger.info("Sampling memory buffer")
             experiences = self._buffer.sample()
             self.learn(experiences)
 
@@ -177,17 +176,21 @@ class DDPGAgent:
             The generated actions, where value have been 
             clipped to to be in range of values defined in the range parameter.
         '''
-        acts = torch.zeros((1, self._action_size))
+        acts = torch.zeros((1, self._action_size)).float().to(self._device)
+
+        state = state.float()
+        if state.device != self._device:
+            state = state.to(self._device)
 
         #Evaluation mode for the local actor
         self._actor_local.eval()
         with torch.no_grad():
-            acts[:] = self._actor_local(state)
+            acts[:] = self._actor_local.forward(state)
         
         self._actor_local.train()
         
         if use_noise:
-            acts += self._noise.sample()
+            acts += torch.from_numpy(self._noise.sample()).to(self._device)
         return torch.clip(acts, *range)
 
     def reset(self) -> None:
@@ -230,7 +233,7 @@ class DDPGAgent:
             torch.save(state, path)
         except Exception as e:
             backup_path = utils.timestamp_path(_BACKUP_PATH)
-            warnings.warn(f"Error while trying to save the model to location {path}. Trying backup location {backup_path}. Error-msg: {e}")
+            self._logger.warning(f"Error while trying to save the model to location {path}. Trying backup location {backup_path}. Error-msg: {e}")
             torch.save(state, backup_path)
 
 
@@ -308,17 +311,16 @@ class DDPGAgent:
             A tuple of tensors, that contain states, actions, rewards, next states, and information about if the
             task was completed at that point.
         '''
-        self._loggger.info("Updating the DDPG agent")
-
         states, actions, rewards, next_states, dones = experiences
         
-        # --------------- Update the critic networks ------------------
-        next_actions = self._actor_target(next_states)
-        next_q_val_targets = self._critic_target(next_states, next_actions)
 
-        #         
-        q_targets = rewards + (self._gamma * next_q_val_targets * (1 - dones)) 
-        q_expected = self._critic_local(states, actions)
+        # --------------- Update the critic networks ------------------
+        next_actions = self._actor_target(next_states) #(batch_size, action_size)
+        next_q_val_targets = self._critic_target(next_states, next_actions) #(batch_size, 1)
+
+        q_targets = rewards.unsqueeze(-1) + (self._gamma * next_q_val_targets * (1 - dones.unsqueeze(-1)))  #(batch_size, 1)
+        q_expected = self._critic_local(states, actions) 
+        
         critic_loss = F.mse_loss(q_targets, q_expected)
 
         self._critic_optim.zero_grad()
@@ -327,7 +329,7 @@ class DDPGAgent:
 
         # -------------------- Update the actor ------------------------
         actions_pred = self._actor_local(states)
-        actor_loss = -self._critic_local(states, actions_pred).mean()
+        actor_loss = -torch.mean(self._critic_local(states, actions_pred))
 
         self._actor_optim.zero_grad()
         actor_loss.backward()
@@ -337,7 +339,6 @@ class DDPGAgent:
         self.soft_update(self._critic_local, self._critic_target, self._tau)
         self.soft_update(self._actor_local, self._actor_target, self._tau)
 
-        self._logger.info("DDPG agent updated")
 
     def soft_update(self, local_network: nn.Module, target_network: nn.Module, tau: float) -> None:
         '''
@@ -356,6 +357,6 @@ class DDPGAgent:
 
         '''
         for t_param, l_param in zip(target_network.parameters(), local_network.parameters()):
-            t_param.copy_(tau * l_param.data + (1.0 - tau) * t_param.data)
+            t_param.data.copy_(tau * l_param.data + (1.0 - tau) * t_param.data)
 
     

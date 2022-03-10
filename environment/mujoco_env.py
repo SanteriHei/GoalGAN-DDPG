@@ -38,7 +38,7 @@ class MazeEnv:
         self._reward_range: Tuple[float, float] = reward_range
         self._goal_size: int = goal_size if isinstance(goal_size, int) else goal_size[0] 
 
-        self._logger = utils.get_logger()
+        self._logger = utils.get_logger(__name__)
 
         self._initialize()
     
@@ -104,12 +104,12 @@ class MazeEnv:
         self._goals = new_goals
 
         if self._achieved_goals is None:
-            self._achieved_goals = np.zeros( (len(self.__goals), ), dtype=bool)
+            self._achieved_goals = np.zeros( (len(self._goals), ), dtype=bool)
         self.achieved_goals.fill(False)
 
         if self._achieved_goals_counts is None:
             self._achieved_goals_counts = np.zeros( (len(self._goals, ), ), dtype=np.float64)
-        self._achieved_goals_counts.fill(0,0)
+        self._achieved_goals_counts.fill(0.0)
         self._logger.info("Set new goals, and reseted achieved goals")
 
 
