@@ -5,8 +5,9 @@
 scenes/*
 test.py
 
-#Saved model checkpoints
+#Saved model checkpoints, and created images
 checkpoints/*
+images/*
 
 #Possible logs files from mujoco
 MUJOCO_LOG.TXT

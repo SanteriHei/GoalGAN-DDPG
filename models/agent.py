@@ -296,7 +296,7 @@ class DDPGAgent:
             self._actor_local.train()
             self._actor_target.train()
             self._critic_local.train()
-            self._critic_target.rain()
+            self._critic_target.train()
 
     def learn(self, experiences: Tuple[torch.Tensor,torch.Tensor, torch.Tensor, torch.Tensor, torch.Tensor]) -> None:
         '''

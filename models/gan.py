@@ -189,7 +189,7 @@ class LSGAN:
         assert path.suffix == ".tar", f"The convention is to store the models using the .tar suffix, but got {path.suffix}"
         
         #Create all subdirectories on the way
-        if not path.parent.exist():
+        if not path.parent.exists():
             path.parent.mkdir(parents=True, exits_ok=True)
 
         #Create the state that contains all necessary parameters
@@ -243,7 +243,7 @@ class LSGAN:
         self._generator.to(self._device)  
 
         self._discriminator.load_state_dict(state["discriminator_state"])
-        self._discriminator(self._device)
+        self._discriminator.to(self._device)
 
         self._generator_optimizer.load_state_dict(state["g_optimizer_state"])
         self._discriminator_optimizer.load_state_dict(state["d_optimizer_state"])

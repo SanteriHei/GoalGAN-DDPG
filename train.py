@@ -209,7 +209,7 @@ def train(
     _logger.info("Starting training")    
     for i in range(iter_count):
         if (i + 1)%10 == 0:
-            utils.display_agent_and_goals(env.agent_pos, goals.detach().cpu().numpy(), env.limits, filepath=f"images/img_{i}.png", pos_label="Agent position", title=f"Iteration {i}", goal_label="goals")
+            utils.display_agent_and_goals(env.agent_pos, goals.detach().cpu().numpy(), env.limits, filepath=f"images/goals_iter_{i}.png", pos_label="Agent position", title=f"Iteration {i}", goal_label="goals")
             _logger.info(f"Training iteration {i}, created figure")
 
         #Sample noise
@@ -243,11 +243,11 @@ def train(
         
         #Save the models
         if (i + 1) % save_after == 0:
-            ddpg_path = utils.add_to_path(ddpg_base_path, "iter_{i}")
+            ddpg_path = utils.add_to_path(ddpg_base_path, f"iter_{i}")
             agent.save_model(ddpg_path)
             _logger.info(f"Iteration {i}: Saved DDPG to {ddpg_path}")
 
-            gan_path = utils.add_to_path(gan_base_path, "iter_{i}")
+            gan_path = utils.add_to_path(gan_base_path, f"iter_{i}")
             gan.save_model(gan_path)
             _logger.info(f"Iteration {i}: Saved gan to {gan_path}")
     
