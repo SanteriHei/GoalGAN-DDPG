@@ -1,5 +1,5 @@
-from time import time
 import torch
+
 import numpy as np
 import pathlib
 
@@ -12,10 +12,33 @@ from typing import Sequence, Optional, Union
 from os import PathLike
 import numpy.typing as npt
 
-_MAX_T_STEPS: int = 500
-_MAX_EPISODES: int = 10
 
 _logger = utils.get_logger(__name__)
+_writer = utils.get_writer()
+
+
+def _clean_up(avg_coverages: npt.NDArray, gan: LSGAN, agent: DDPGAgent, iter_count: int) -> None:
+    '''
+    Convience function to save figures, and close all tensorboard writers when the training is done.
+
+    Parameters
+    ----------
+    avg_coverages: npt.NDArray
+        The average coverages of the training run
+    gan: LSGAN
+        The GAN that was trained.
+    agent: DDPGAgent
+        The agent that was used in the training
+    iter_count: int
+        The amount of iterations used.
+
+    '''
+    x = np.arange(0, iter_count)
+    utils.line_plot_1d(x, avg_coverages, "images/training_coverage.png", title="Training coverage", xlabel="Iterations", ylabel="Avg coverage")
+    np.save("checkpoints/avg_coverages.npy", avg_coverages)
+    gan.close()
+    agent.close()
+    _writer.close()
 
 
 def _eval_and_update_policy(
@@ -46,25 +69,77 @@ def _eval_and_update_policy(
         The amount of times a given goal was reached, normalized to be in range (0, 1).
 
     '''
-    _logger.info("Evaluation and updating policy")
+    
     env.goals = goals #Set the current goals for the agent.
-    for i in range(episode_count):
-        state = env.reset()
-        for j in range(timestep_count):
-            action = agent.act(torch.from_numpy(state)) #Create the action based on the current state.
-            cpu_action = action.detach().cpu().numpy().squeeze()
-            next_state, reward, done = env.step(cpu_action)
 
-            agent.step(state, cpu_action, reward, next_state, done)
+    avg_reward = np.zeros((timestep_count,))
+
+    for ep in range(episode_count):
+        state = env.reset()
+        avg_reward.fill(0.0) #Reset stats
+        
+        for ts in range(timestep_count):
+            action = agent.act(state)
+            next_state, reward, done = env.step(action)
+
+            avg_reward[ts] = reward
+
+            agent.step(state, action, reward, next_state, done)
             #If any of the goals was achieved during the episode, we stop and start a new episode
             if done:
-                _logger.info(f"(Episode {i}): Goal found in {j} timesteps")
-                break 
+                _logger.info(f"(Episode {ep}): Goal found in {ts} timesteps")
+                #break 
+        _writer.add_scalars("Avg-reward", avg_reward.mean(), global_step=ep)
+
 
     # Check how many times each goal was reached during the training, 
     # and normalize the values between (0,1) for goal labeling
-    _logger.info("Evaluation & updating done")
-    return env.achieved_goals_counts / _MAX_EPISODES 
+    return env.achieved_goals_counts - np.min(env.achieved_goals_counts)/ np.ptp(env.achieved_goals_counts)
+    #return env.achieved_goals_counts/episode_count
+
+
+
+def _observe_states(agent: DDPGAgent, env: MazeEnv, goals: Sequence[npt.NDArray], episode_count: int, timestep_count: int) -> npt.NDArray:
+    '''
+    Obserses the states that the agent visits with it's initial policy. The goals should be
+    sampled uniformly from the whole goal space. See Appendix A.2 from Florensa et al. 2018 for more details
+
+    Parameters
+    ----------
+    agent: DDPGAgent
+        The agent that observes the new states
+    env: MazeEnv
+        The environment, where the goals are located in.
+    goals: Sequence[npt.NDArray]
+        The goals to use for this environment
+    episode_count: int
+        The amount of episodes used for the given goals
+    timestep_count: int
+        the maximum amount of episodes allowed per episode.
+    
+    Returns
+    -------
+    npt.NDArray
+        The positions that agent visited while trying to reach the uniformly
+        created goals
+
+    '''
+    _logger.info("Training on random goals")
+    env.goals = goals
+    visited_positions = np.zeros((episode_count*timestep_count, env.goal_size))
+    for ep in range(episode_count):
+        state = env.reset()
+        for ts in range(timestep_count):
+            action = agent.act(state)
+            next_state, reward, done = env.step(action)
+            
+            visited_positions[ep*episode_count + ts, :] = env.agent_pos
+
+            agent.step(state, action, reward, next_state, done)
+            if done:
+                _logger.info(f"Goal found at timestep {ts} during episode {ep}")
+                #break            
+    return visited_positions
 
 
 def _update_replay(current_goals: torch.Tensor, old_goals: torch.Tensor, eps: float = 0.1) -> torch.Tensor:
@@ -126,21 +201,25 @@ def _initialize_gan(
         The goals that should be suitable for the agent.
     '''
 
+    rng = np.random.default_rng()
     for i in range(iter_count):
         if (i+1)%10 == 0:
             _logger.info(f"Pretrain: iteration: {i}")
-        starting_pos = torch.from_numpy(env.agent_pos)
-        goals = torch.clamp(starting_pos + 0.1*torch.randn(goal_count, env.goal_size), *env.limits)
         
-        #Train the agent with the randomly generated goals
-        returns = _eval_and_update_policy(agent, env, goals.detach().cpu().numpy(), episode_count, timestep_count)
-        #Label the goals and train the GAN
-        labels = utils.label_goals(returns)
-        gan.train(goals, labels)
+        #Create starting goals
+        goals = np.clip(env.agent_pos + 0.05*rng.standard_normal(size=(goal_count, env.goal_size)), *env.limits)
 
-    #After the Policy is trained with the random goals, we choose random, easy goals from the close neighborhood of the agent.
+        #Observe the states that the agent visits with the untrained policy
+        visited_positions = _observe_states(agent, env, goals, episode_count, timestep_count)
+        labels = np.ones((max(visited_positions.shape), ))
+        visited_positions = torch.from_numpy(visited_positions)
+
+        #Train the GAN with the positions that the agent has visited
+        gan.train(visited_positions, labels, global_step=i)
+
+    #Choose random, easy goals from the close neighborhood of the agent.
     env.reset()
-    goals = torch.from_numpy(env.agent_pos).unsqueeze(0) + 0.1*torch.randn(goal_count, env.goal_size)
+    goals = torch.from_numpy(env.agent_pos).unsqueeze(0) + 0.01*torch.randn(goal_count, env.goal_size)
     return torch.clamp(goals, *env.limits)
 
 
@@ -207,6 +286,10 @@ def train(
     _logger.info("Ending pre-training")
         
     _logger.info("Starting training")    
+    
+    #Variable used to check how many concecutive iterations don't contain any items.
+    consecutive_iters = 0
+    
     for i in range(iter_count):
         if (i + 1)%10 == 0:
             utils.display_agent_and_goals(env.agent_pos, goals.detach().cpu().numpy(), env.limits, filepath=f"images/goals_iter_{i}.png", pos_label="Agent position", title=f"Iteration {i}", goal_label="goals")
@@ -226,17 +309,29 @@ def train(
         goals = torch.cat([gan_goals, utils.sample_tensor(old_goals, random_goal_count), rand_goals])
 
         #Evaluate & update the agent.
+        _logger.info("Starting evaluation and updating of the policy")
         returns = _eval_and_update_policy(agent, env, goals.detach().cpu().numpy(), episode_count, timestep_count)
         avg_coverages[i] = np.mean(returns)
+        _logger.info("Evaluated and updated the policy")
+
 
         #Label the goals to be either in the GOID or not. Range 0.1 <= x <= 0.9 is used as in the original paper.
         labels = utils.label_goals(returns)
 
         if np.all(labels == 0):
+            consecutive_iters += 1 
             _logger.warning(f"All labels 0 during training iteration {i+1}")
 
+            if consecutive_iters > 10:
+                _logger.critical(f"[iter: {i}] {consecutive_iters} consecutive iters with 0-labels. Aborting!")
+                iter_count = i
+                break
+        else:
+            consecutive_iters = 0
+        
+
         #Train the Goal GAN with the goals and their labels.
-        gan.train(goals, labels)
+        gan.train(goals, labels, global_step=pretrain_iter_count +i)
 
         #Update the old goals to ensure that "catastrophic forgetting"
         old_goals = _update_replay(gan_goals, old_goals)
@@ -251,8 +346,7 @@ def train(
             gan.save_model(gan_path)
             _logger.info(f"Iteration {i}: Saved gan to {gan_path}")
     
-    x = np.arange(0, iter_count)
-    utils.line_plot_1d(x, avg_coverages, "figures/training_coverage.png", title="Training coverage", xlabel="Iterations", ylabel="Avg coverage")
+    _clean_up(avg_coverages, gan, agent, iter_count)
     _logger.info("Training done!")
 
 

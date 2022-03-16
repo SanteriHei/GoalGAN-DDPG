@@ -1,4 +1,5 @@
 import torch
+from torch.utils.tensorboard import SummaryWriter
 import numpy as np
 import matplotlib.pyplot as plt
 
@@ -19,7 +20,9 @@ _IMG_SIZE: Tuple[int, int] = (400, 400)
 _WIDTH: int = 100
 _HEIGHT: int = 250
 _BARRIER_WIDTH: int = 50
-_TIMESTAMP_FMT: str = "%Y-%m-%dT%H:%M:%S"
+_TIMESTAMP_FMT: str = "%m-%d %H:%M:%S"
+
+_LOG_DIR = f"runs/{datetime.datetime.now().strftime('%m-%d %H:%M')}"
 
 
 def _rescale(data: Union[Numeric, npt.NDArray], old_range: Tuple[float, float], new_range: Tuple[float, float] = (0.0, 1.0)) -> Union[Numeric, npt.NDArray]:
@@ -64,17 +67,22 @@ def _create_env_image() -> npt.NDArray:
     return base_img
 
 
-def _set_logging_config() -> None:
+def set_logging_config() -> None:
     '''Sets up the configuration for the logger '''
     logging.basicConfig(
         level=logging.INFO,
-        format="%(asctime)s %(module)s/%(funcName)s [%(levelname)s] %(message)s",
+        format="%(asctime)s %(module)-10s:%(funcName)-20s %(levelname)-8s %(message)s",
         datefmt=_TIMESTAMP_FMT,
-        handlers= [
-            logging.FileHandler("training.log"), 
-            logging.StreamHandler()
-        ]
+        filename="training.log",
+        filemode="w"
     )    
+
+    console= logging.StreamHandler()
+    console.setLevel(logging.INFO)
+    formatter = logging.Formatter("%(module)-10s:%(funcName)-20s %(levelname)-8s %(message)s")
+    console.setFormatter(formatter)
+    logging.getLogger('').addHandler(console)
+
 
 
 def label_goals(returns: Iterable[float], rmin=0.1, rmax=0.9) -> npt.NDArray[np.int32]:
@@ -206,6 +214,11 @@ def display_agent_and_goals(agent_pos: npt.NDArray, goals: npt.ArrayLike, coord_
         ax.legend(fontsize=8)
 
     if fig is not None and filepath is not None:
+        filepath = filepath if isinstance(filepath, pathlib.PurePath) else pathlib.Path(filepath)
+        
+        #If the parent directories, create them.
+        if not filepath.parent.exists():
+            filepath.parent.mkdir(parents=True, exist_ok=True)
         fig.savefig(filepath)    
         plt.close()
 
@@ -245,7 +258,7 @@ def line_plot_1d(x: npt.NDArray, y: npt.NDArray, filepath: Union[str, PathLike],
     ylabel = kwargs.pop("ylabel", "y")
     alpha = kwargs.pop("alpha", 0.2)
 
-    fig, ax = plt.subplots(1,1,  figsize=(10, 10))
+    fig, ax = plt.subplots(1,1,  figsize=(20, 10))
     ax.plot(x, y, label=label, **kwargs)
     ax.set_title(title)
     ax.set_xlabel(xlabel)
@@ -295,6 +308,8 @@ def line_plot(x: npt.NDArray, y: npt.NDArray, filepath: Union[str, PathLike], la
         ax.fill_between(x, y[i,:], y[i, :] + std[i], antialiased=True, alpha=alpha)
         ax.fill_between(x, y[i, :], y[i, :] - std[i], antialiased=True, alpha=alpha)
     ax.legend()
+
+    filepath = filepath if isinstance(filepath, pathlib.PurePath) else pathlib.Path(filepath)
     fig.savefig(filepath)
     plt.close(fig)     
     
@@ -368,5 +383,6 @@ def get_logger(name: str) -> logging.Logger:
     return logging.getLogger(name)
 
 
-#Make sure that the logger is initialized
-_set_logging_config()
+def get_writer() -> torch.utils.tensorboard.SummaryWriter:
+    ''' Returns a tensorboard summary writer with correct logging dir'''
+    return SummaryWriter(_LOG_DIR)

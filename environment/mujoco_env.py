@@ -26,11 +26,11 @@ class MazeEnv:
         The range, where the results should be. Default (0.0, 1.0)
     '''
 
-    def __init__(self, env_name: str, goal_size: Union[Tuple[int], int], initial_goals: Sequence[npt.ArrayLike] = None, tol: float = 1e-5, reward_range: Tuple[float, float] = (0.0, 1.0)) -> None:
+    def __init__(self, env_name: str, goal_size: Union[Tuple[int], int], initial_goals: Optional[Sequence[npt.ArrayLike]] = None, tol: float = 1e-2, reward_range: Tuple[float, float] = (0.0, 1.0)) -> None:
         self._env: gym.Env = gym.make(env_name)
-        self._agent_pos: Optional[np.ndarray] = None
+        self._agent_pos: Optional[npt.NDArray[np.float32]] = None
         
-        self._goals: Sequence[npt.ArrayLike] = initial_goals
+        self._goals: Optional[Sequence[npt.ArrayLike]] = initial_goals
         self._achieved_goals: Optional[Sequence[bool]] = None
         self._achieved_goals_counts: Optional[npt.NDArray[np.float32]] = None
         
@@ -158,7 +158,7 @@ class MazeEnv:
         for i, g in enumerate(self._goals):
             assert g.shape == self._agent_pos.shape, "The shapes of the goals and agent positions don't match"
             if self._is_goal_reached(g):
-                self._logger.info("A goal was found in Maze")
+                self._logger.debug("A goal was found in Maze")
                 self._achieved_goals[i] = True
                 self._achieved_goals_counts[i] += 1
                 goal_reached = True

@@ -8,9 +8,13 @@ test.py
 #Saved model checkpoints, and created images
 checkpoints/*
 images/*
+results/*
 
 #Possible logs files from mujoco
 MUJOCO_LOG.TXT
 
 #Log files from the script
 *.log
+
+#Tensorboard data
+runs/

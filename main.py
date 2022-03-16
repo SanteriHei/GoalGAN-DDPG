@@ -3,12 +3,15 @@ import torch
 from argparse import ArgumentParser
 import argparse
 
+import utils
+utils.set_logging_config() #Setup logger
+
+
 from models.gan import LSGAN, GANConfig
 from models.agent import DDPGAgent, DDPGConfig
 from environment.mujoco_env import MazeEnv
 from train import train
 from eval import eval_gan
-import utils
 
 from typing import Tuple
 

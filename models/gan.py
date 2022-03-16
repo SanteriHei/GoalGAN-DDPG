@@ -1,6 +1,7 @@
 import torch
 import torch.nn as nn
 from torch import optim
+from torch.utils.tensorboard import SummaryWriter
 import numpy as np
 
 import pathlib
@@ -8,7 +9,7 @@ from dataclasses import dataclass
 
 import numpy.typing as npt
 from os import PathLike
-from typing import Union
+from typing import Union, Optional
 
 import utils
 
@@ -127,13 +128,19 @@ class LSGAN:
         self._b = b
         self._c = c
 
+        #For logging to console and tensorboard
         self._logger = utils.get_logger(__name__)
+        self._writer = SummaryWriter()
 
         #Apply Xavier uniform weight initialization
         self._generator.apply(init_weights)
         self._discriminator.apply(init_weights)
 
-    def reset_weights(self):
+    def close(self) -> None:
+        ''' Closes the tensorboard writer. Call only if all training is done.'''
+        self._writer.close()
+
+    def reset_weights(self) -> None:
         '''
         Resets the weights of the generator and discriminator
         '''
@@ -190,7 +197,7 @@ class LSGAN:
         
         #Create all subdirectories on the way
         if not path.parent.exists():
-            path.parent.mkdir(parents=True, exits_ok=True)
+            path.parent.mkdir(parents=True, exist_ok=True)
 
         #Create the state that contains all necessary parameters
         state = {
@@ -304,7 +311,7 @@ class LSGAN:
         d = self._discriminator
         return (d.forward(g.forward(z)) - self._c)**2
 
-    def train(self, goals: torch.Tensor, labels: npt.NDArray[np.int32], n_iter: int = 10) -> None:
+    def train(self, goals: torch.Tensor, labels: npt.NDArray[np.int32], n_iter: int = 1, global_step: Optional[int] = None) -> None:
         '''
         Trains the gan network for given amount of iterations
 
@@ -335,7 +342,7 @@ class LSGAN:
             discriminator_loss = torch.mean(self._discriminator_loss(y, zs, goals))
             discriminator_loss.backward()
             self._discriminator_optimizer.step()
-
+            
             #---------Update the Generator-------------
    
             zs = torch.randn(len(labels), self._generator_input_size).to(self._device)
@@ -344,6 +351,10 @@ class LSGAN:
             generator_loss = torch.mean(self._generator_loss(zs))
             generator_loss.backward()
             self._generator_optimizer.step()
+            
+            #--------Update tensorboard----------------
+            self._writer.add_scalar("Discriminator loss", discriminator_loss.item(), global_step=global_step)
+            self._writer.add_scalar("Generator loss", generator_loss.item(), global_step=global_step)
 
  
 

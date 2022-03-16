@@ -8,7 +8,9 @@ import torch.nn as nn
 import torch.nn.functional as F
 import torch.optim as optim
 
-from typing import Tuple, Union
+import numpy as np
+
+from typing import Optional, Tuple, Union
 from os import PathLike
 import numpy.typing as npt
 
@@ -110,7 +112,12 @@ class DDPGAgent:
         self._tau: float = config.tau
 
         self._logger = utils.get_logger(__name__)
+        self._writer = utils.get_writer()
 
+
+    def close(self) -> None:
+        ''' Closes the tensorboard writer. Call only if training is done'''
+        self._writer.done()
 
     def _check_dim_and_unwrap(self, value: Union[int, Tuple[int]]) -> int:
         '''
@@ -134,36 +141,44 @@ class DDPGAgent:
         assert len(value) == 1, f"Expected a 1D size, but got {value}, with ndim {len(value)}"
         return value[0]
 
-    def step(self, state: npt.NDArray, action: npt.NDArray, reward: float, next_state: npt.NDArray, done: bool) -> None:
+    def step(
+            self, state: npt.NDArray, action: npt.NDArray, reward: float, 
+            next_state: npt.NDArray, done: bool, global_step: Optional[int] = None
+        ) -> None:
         '''
         Takes a step with the action, and updates the replay buffer. If enough data is 
         saved, the agent will be trained
 
         Parameters
         ----------
-        experience: Experience
-            An experince consisting of state, action, reward, the next state, and information
-            about if the task is completed after the action.
-        
-        Returns
-        -------
-        None
+        state: npt.NDArray
+            The state before the action.
+        action: npt.NDArray
+            The action that was taken
+        reward: float
+            The received reward.
+        next_state: npt.NDArray
+            The state that was achieved by taking the action.
+        done: bool 
+            Was the task completed.
+        global_step: Optional[int],
+            The global training step, used for logging purposes. Default None.
         '''
         exp = Experience(state=state, action=action, reward=reward, next_state=next_state, done=done)
         self._buffer.append(exp)
 
         if len(self._buffer) > self._buffer.batch_size:
             experiences = self._buffer.sample()
-            self.learn(experiences)
+            self.learn(experiences, global_step)
 
 
-    def act(self, state: torch.Tensor, use_noise: bool = True, range: Tuple[float, float] = (0.0, 1.0)) -> torch.Tensor:
+    def act(self, state: npt.NDArray, use_noise: bool = True, range: Tuple[float, float] = (0.0, 1.0)) -> npt.NDArray:
         '''
         Uses the current policy to create actions for the given state
 
         Parameters
         ----------
-        state: torch.Tensor
+        state: npt.NDArray
             The current state.
         use_noise: bool, Optional
             Controls if additional noise is added to the 
@@ -172,15 +187,13 @@ class DDPGAgent:
             Defines the range, where the values should be clipped to.
         Returns
         -------
-        torch.tensor
+        npt.NDArray
             The generated actions, where value have been 
             clipped to to be in range of values defined in the range parameter.
         '''
-        acts = torch.zeros((1, self._action_size)).float().to(self._device)
 
-        state = state.float()
-        if state.device != self._device:
-            state = state.to(self._device)
+        state = torch.from_numpy(state).float().to(self._device)
+        acts = torch.zeros((1, self._action_size)).float().to(self._device)
 
         #Evaluation mode for the local actor
         self._actor_local.eval()
@@ -191,7 +204,11 @@ class DDPGAgent:
         
         if use_noise:
             acts += torch.from_numpy(self._noise.sample()).to(self._device)
-        return torch.clip(acts, *range)
+        
+        #Convert action back to numpy array
+        cpu_action = acts.detach().cpu().numpy()
+        return np.clip(cpu_action, *range).squeeze()
+        
 
     def reset(self) -> None:
         '''Resets the noise used internally'''
@@ -298,7 +315,10 @@ class DDPGAgent:
             self._critic_local.train()
             self._critic_target.train()
 
-    def learn(self, experiences: Tuple[torch.Tensor,torch.Tensor, torch.Tensor, torch.Tensor, torch.Tensor]) -> None:
+    def learn(
+            self, experiences: Tuple[torch.Tensor,torch.Tensor, torch.Tensor, torch.Tensor, torch.Tensor],
+            global_step: Optional[int] = None
+        ) -> None:
         '''
         Updates the policy, and value parameters, using the given experiences. The used formula
         Qtargets = r + y * Q-value,
@@ -310,6 +330,8 @@ class DDPGAgent:
         experiences: Tuple[torch.Tensor, torch.Tensor, torch.Tensor, torch.Tensor, torch.Tensor]
             A tuple of tensors, that contain states, actions, rewards, next states, and information about if the
             task was completed at that point.
+        global_step: Optional[int]
+            The global training step, used for logging purposes. Default None.
         '''
         states, actions, rewards, next_states, dones = experiences
         
@@ -327,6 +349,7 @@ class DDPGAgent:
         critic_loss.backward()
         self._critic_optim.step()
 
+
         # -------------------- Update the actor ------------------------
         actions_pred = self._actor_local(states)
         actor_loss = -torch.mean(self._critic_local(states, actions_pred))
@@ -338,6 +361,11 @@ class DDPGAgent:
         # ---------------- Update the target networks ------------------
         self.soft_update(self._critic_local, self._critic_target, self._tau)
         self.soft_update(self._actor_local, self._actor_target, self._tau)
+
+
+        #----------------- Update tensorboard ---------------------------
+        self._writer.add_scalar("Critic loss", critic_loss.item(), global_step=global_step)
+        self._writer.add_scalar("Actor loss", actor_loss.item(), global_step=global_step)
 
 
     def soft_update(self, local_network: nn.Module, target_network: nn.Module, tau: float) -> None:
