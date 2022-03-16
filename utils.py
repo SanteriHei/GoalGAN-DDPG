@@ -22,7 +22,7 @@ _HEIGHT: int = 250
 _BARRIER_WIDTH: int = 50
 _TIMESTAMP_FMT: str = "%m-%d %H:%M:%S"
 
-_LOG_DIR = f"runs/{datetime.datetime.now().strftime('%m-%d %H:%M')}"
+_LOG_DIR = f"runs/{datetime.datetime.now().strftime('%m-%dT%H:%M')}"
 
 
 def _rescale(data: Union[Numeric, npt.NDArray], old_range: Tuple[float, float], new_range: Tuple[float, float] = (0.0, 1.0)) -> Union[Numeric, npt.NDArray]:
@@ -223,6 +223,45 @@ def display_agent_and_goals(agent_pos: npt.NDArray, goals: npt.ArrayLike, coord_
         plt.close()
 
 
+def line_plot(x: npt.NDArray, y: npt.NDArray, **kwargs) -> plt.Figure:
+    '''
+    Displays the x and y data in a line plot. 
+
+    Parameters
+    ----------
+    x: npt.NDArray
+        The x values. Should be 1D array, as all the plottings should share the same x-axis.
+    y: npt.NDArray
+        The actual data. should be 1D array.
+    kwargs: Named arguments
+        title: str
+            The title of the plot. Default Results
+        xlabel: str
+            The x label for the plot. Default x
+        ylabel: str
+            The y label for the plot. Default y
+        label: str
+            The label for the data
+        Other named arguments will be passed to plot method.
+    
+    Returns
+    -------
+    plt.Figure
+        The plotted figure
+    '''
+    title = kwargs.pop("title", "results")
+    xlabel = kwargs.pop("xlabel", "x")
+    ylabel = kwargs.pop("ylabel", "y")
+    label = kwargs.pop("label", None)
+
+    fig, ax = plt.subplots(1,1, figsize=(10, 10))
+    ax.plot(x, y, label=label, **kwargs)
+    ax.set_title(title)
+    ax.set_xlabel(xlabel)
+    ax.set_ylabel(ylabel)
+    if label is not None:
+        ax.legend()
+    return fig
 
 def line_plot_1d(x: npt.NDArray, y: npt.NDArray, filepath: Union[str, PathLike], label: Optional[str] = None, **kwargs) -> None:
     '''
@@ -271,49 +310,7 @@ def line_plot_1d(x: npt.NDArray, y: npt.NDArray, filepath: Union[str, PathLike],
     fig.savefig(filepath)
     plt.close(fig)  
 
-
-def line_plot(x: npt.NDArray, y: npt.NDArray, filepath: Union[str, PathLike], labels: Sequence[str], **kwargs) -> None:
-    '''
-    Displays the x and y data in a line plot, with standard deviation interval around them. 
-
-    Parameters
-    ----------
-    x: npt.NDArray
-        The x values. Should be 1D array, as all the plottings should share the same x-axis.
-    y: npt.NDArray
-        The actual data. Can be a 2D array.
-    filepath: str | Pathlike
-        Path to the location where the figure will be stored.
-    labels: Sequence[str]
-        A sequence of labels, corresponding to the different y-data values.  
-    '''
-
-    #Get the correct axis to calculate the standard deviation on
-    axis = y.shape.index(max(y.shape))
-    std = y.std(axis=axis)
-    
-    #Extract some user specified options
-    title = kwargs.pop("title", "Results")
-    xlabel = kwargs.pop("xlabel", "x")
-    ylabel = kwargs.pop("ylabel", "y")
-    alpha = kwargs.pop("alpha", 0.2)
-
-
-    fig, ax = plt.subplots(1,1, figsize=(10,10))
-    for i in range(y.shape[0]):
-        ax.plot(x, y[i, :], label=labels[i], **kwargs)
-        ax.set_title(title)
-        ax.set_xlabel(xlabel)
-        ax.set_ylabel(ylabel)
-        ax.fill_between(x, y[i,:], y[i, :] + std[i], antialiased=True, alpha=alpha)
-        ax.fill_between(x, y[i, :], y[i, :] - std[i], antialiased=True, alpha=alpha)
-    ax.legend()
-
-    filepath = filepath if isinstance(filepath, pathlib.PurePath) else pathlib.Path(filepath)
-    fig.savefig(filepath)
-    plt.close(fig)     
-    
-
+ 
 def timestamp_path(path: Union[str, PathLike]) -> PathLike:
     '''
     Adds a timestamp to a given paths filename (returned by pathlib.Path.name)

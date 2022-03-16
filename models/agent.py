@@ -9,6 +9,7 @@ import torch.nn.functional as F
 import torch.optim as optim
 
 import numpy as np
+import matplotlib.pyplot as plt
 
 from typing import Optional, Tuple, Union
 from os import PathLike
@@ -113,6 +114,8 @@ class DDPGAgent:
 
         self._logger = utils.get_logger(__name__)
         self._writer = utils.get_writer()
+        self._critic_losses = []
+        self._actor_losses  = []
 
 
     def close(self) -> None:
@@ -208,7 +211,30 @@ class DDPGAgent:
         #Convert action back to numpy array
         cpu_action = acts.detach().cpu().numpy()
         return np.clip(cpu_action, *range).squeeze()
-        
+
+
+    def log_losses_and_reset(self, global_step: Optional[int] = None) -> None:
+        '''
+        Logs the losses to the tensorboard by creating figures, and resets them.
+
+        Parameters
+        ----------
+        global_step: Optional[int]
+            The global training step.
+        '''
+        x = np.arange(len(self._actor_losses))
+        actor_loss = np.array(self._actor_losses)
+        critic_loss = np.array(self._critic_losses)
+        actor_fig  = utils.line_plot(x, actor_loss, title=f"Actor loss {global_step}", xlabel="iterations", ylabel="loss")
+        critic_fig = utils.line_plot(x, critic_loss, title=f"Critic loss {global_step}", xlabel="iterations", ylabel="loss")
+        self._writer.add_figure("loss/actor", actor_fig, global_step=global_step)
+        self._writer.add_figure("loss/critic", critic_fig, global_step=global_step)
+
+        self._actor_losses = []
+        self._critic_losses = []
+        plt.close(critic_fig)
+        plt.close(actor_fig)
+
 
     def reset(self) -> None:
         '''Resets the noise used internally'''
@@ -363,9 +389,10 @@ class DDPGAgent:
         self.soft_update(self._actor_local, self._actor_target, self._tau)
 
 
-        #----------------- Update tensorboard ---------------------------
-        self._writer.add_scalar("Critic loss", critic_loss.item(), global_step=global_step)
-        self._writer.add_scalar("Actor loss", actor_loss.item(), global_step=global_step)
+        #----------------- Store losses ---------------------------
+        self._actor_losses.append(actor_loss.item())
+        self._critic_losses.append(critic_loss.item())
+
 
 
     def soft_update(self, local_network: nn.Module, target_network: nn.Module, tau: float) -> None:

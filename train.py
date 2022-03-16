@@ -2,6 +2,7 @@ import torch
 
 import numpy as np
 import pathlib
+import matplotlib.pyplot as plt
 
 from models.gan import LSGAN
 from models.agent import DDPGAgent
@@ -43,7 +44,7 @@ def _clean_up(avg_coverages: npt.NDArray, gan: LSGAN, agent: DDPGAgent, iter_cou
 
 def _eval_and_update_policy(
     agent: DDPGAgent, env: MazeEnv, goals: Sequence[npt.NDArray], 
-    episode_count: int, timestep_count: int
+    episode_count: int, timestep_count: int, global_step: Optional[int] = None
     ) -> npt.NDArray[np.float32]:
     '''
     Evaluates the agents current policy for the current goals, and adds the experience to the 
@@ -62,6 +63,8 @@ def _eval_and_update_policy(
         The amount of episodes evaluated
     timestep_count: int
         The maximum amount of timesteps during each episode 
+    global_step: Optional[int]
+        The current global training-step
 
     Returns
     -------
@@ -71,26 +74,28 @@ def _eval_and_update_policy(
     '''
     
     env.goals = goals #Set the current goals for the agent.
-
-    avg_reward = np.zeros((timestep_count,))
+    avg_rewards = np.zeros((episode_count, timestep_count))
 
     for ep in range(episode_count):
         state = env.reset()
-        avg_reward.fill(0.0) #Reset stats
-        
         for ts in range(timestep_count):
             action = agent.act(state)
             next_state, reward, done = env.step(action)
 
-            avg_reward[ts] = reward
-
+            avg_rewards[ep, ts] = reward
             agent.step(state, action, reward, next_state, done)
+            
             #If any of the goals was achieved during the episode, we stop and start a new episode
             if done:
                 _logger.info(f"(Episode {ep}): Goal found in {ts} timesteps")
                 #break 
-        _writer.add_scalars("Avg-reward", avg_reward.mean(), global_step=ep)
 
+    #---- Update tensorboard ----------
+    avg_per_episode = avg_rewards.mean(axis=1)
+    fig = utils.line_plot(np.arange(avg_per_episode.shape[0]), avg_per_episode, xlabel="episode", ylabel="avg reward", title="Average reward/episode")
+    _writer.add_figure("rewards/avg-reward", fig, global_step=global_step)
+    plt.close(fig)
+    agent.log_losses_and_reset(global_step)
 
     # Check how many times each goal was reached during the training, 
     # and normalize the values between (0,1) for goal labeling
@@ -310,7 +315,7 @@ def train(
 
         #Evaluate & update the agent.
         _logger.info("Starting evaluation and updating of the policy")
-        returns = _eval_and_update_policy(agent, env, goals.detach().cpu().numpy(), episode_count, timestep_count)
+        returns = _eval_and_update_policy(agent, env, goals.detach().cpu().numpy(), episode_count, timestep_count, i)
         avg_coverages[i] = np.mean(returns)
         _logger.info("Evaluated and updated the policy")
 

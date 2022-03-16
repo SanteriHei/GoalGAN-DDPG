@@ -1,7 +1,6 @@
 import torch
 import torch.nn as nn
 from torch import optim
-from torch.utils.tensorboard import SummaryWriter
 import numpy as np
 
 import pathlib
@@ -130,7 +129,7 @@ class LSGAN:
 
         #For logging to console and tensorboard
         self._logger = utils.get_logger(__name__)
-        self._writer = SummaryWriter()
+        self._writer = utils.get_writer()
 
         #Apply Xavier uniform weight initialization
         self._generator.apply(init_weights)
@@ -353,8 +352,8 @@ class LSGAN:
             self._generator_optimizer.step()
             
             #--------Update tensorboard----------------
-            self._writer.add_scalar("Discriminator loss", discriminator_loss.item(), global_step=global_step)
-            self._writer.add_scalar("Generator loss", generator_loss.item(), global_step=global_step)
+            self._writer.add_scalar("loss/discriminator", discriminator_loss.item(), global_step=global_step)
+            self._writer.add_scalar("loss/generator", generator_loss.item(), global_step=global_step)
 
  
 
