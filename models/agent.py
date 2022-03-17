@@ -120,7 +120,7 @@ class DDPGAgent:
 
     def close(self) -> None:
         ''' Closes the tensorboard writer. Call only if training is done'''
-        self._writer.done()
+        self._writer.close()
 
     def _check_dim_and_unwrap(self, value: Union[int, Tuple[int]]) -> int:
         '''
@@ -225,15 +225,24 @@ class DDPGAgent:
         x = np.arange(len(self._actor_losses))
         actor_loss = np.array(self._actor_losses)
         critic_loss = np.array(self._critic_losses)
-        actor_fig  = utils.line_plot(x, actor_loss, title=f"Actor loss {global_step}", xlabel="iterations", ylabel="loss")
-        critic_fig = utils.line_plot(x, critic_loss, title=f"Critic loss {global_step}", xlabel="iterations", ylabel="loss")
-        self._writer.add_figure("loss/actor", actor_fig, global_step=global_step)
-        self._writer.add_figure("loss/critic", critic_fig, global_step=global_step)
+
+        fig_actor_loss = utils.line_plot(
+            x, actor_loss, title=f"Actor loss {global_step}", 
+            xlabel="iterations", ylabel="loss", figsize=(20, 10)
+        )
+
+        fig_critic_loss = utils.line_plot(
+            x, critic_loss, title=f"Critic loss {global_step}", 
+            xlabel="iterations", ylabel="loss", figsize=(20, 10)
+        )
+
+        self._writer.add_figure("loss/actor", fig_actor_loss, global_step=global_step)
+        self._writer.add_figure("loss/critic", fig_critic_loss, global_step=global_step)
 
         self._actor_losses = []
         self._critic_losses = []
-        plt.close(critic_fig)
-        plt.close(actor_fig)
+        plt.close(fig_actor_loss)
+        plt.close(fig_critic_loss)
 
 
     def reset(self) -> None:
@@ -341,10 +350,7 @@ class DDPGAgent:
             self._critic_local.train()
             self._critic_target.train()
 
-    def learn(
-            self, experiences: Tuple[torch.Tensor,torch.Tensor, torch.Tensor, torch.Tensor, torch.Tensor],
-            global_step: Optional[int] = None
-        ) -> None:
+    def learn(self, experiences: Tuple[torch.Tensor,torch.Tensor, torch.Tensor, torch.Tensor, torch.Tensor]) -> None:
         '''
         Updates the policy, and value parameters, using the given experiences. The used formula
         Qtargets = r + y * Q-value,
@@ -356,8 +362,6 @@ class DDPGAgent:
         experiences: Tuple[torch.Tensor, torch.Tensor, torch.Tensor, torch.Tensor, torch.Tensor]
             A tuple of tensors, that contain states, actions, rewards, next states, and information about if the
             task was completed at that point.
-        global_step: Optional[int]
-            The global training step, used for logging purposes. Default None.
         '''
         states, actions, rewards, next_states, dones = experiences
         

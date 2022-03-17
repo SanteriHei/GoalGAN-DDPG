@@ -6,7 +6,7 @@ import matplotlib.pyplot as plt
 import pathlib
 import datetime
 
-from typing import Iterable, Union, Tuple, Sequence, Optional
+from typing import Iterable, Union, Tuple, Optional
 from os import PathLike
 import numpy.typing as npt
 
@@ -223,7 +223,7 @@ def display_agent_and_goals(agent_pos: npt.NDArray, goals: npt.ArrayLike, coord_
         plt.close()
 
 
-def line_plot(x: npt.NDArray, y: npt.NDArray, **kwargs) -> plt.Figure:
+def line_plot(x: npt.NDArray, y: npt.NDArray, add_std: bool = False, filepath: Optional[Union[PathLike, str]] = None, close_fig: bool = False, **kwargs) -> Optional[plt.Figure]:
     '''
     Displays the x and y data in a line plot. 
 
@@ -233,6 +233,13 @@ def line_plot(x: npt.NDArray, y: npt.NDArray, **kwargs) -> plt.Figure:
         The x values. Should be 1D array, as all the plottings should share the same x-axis.
     y: npt.NDArray
         The actual data. should be 1D array.
+    add_std: bool, Optional
+        If set to true, the standard deviation of the data will be added to the plot. Default False
+    filepath: Optional[PathLike | str]
+        Path to a file, where the figure will be saved to. If None, the figure will not be saved. Default None.
+    close_fig: bool, Optional
+        If set to true, the handle to the figure is closed. See Returns. Default False.
+
     kwargs: Named arguments
         title: str
             The title of the plot. Default Results
@@ -241,74 +248,47 @@ def line_plot(x: npt.NDArray, y: npt.NDArray, **kwargs) -> plt.Figure:
         ylabel: str
             The y label for the plot. Default y
         label: str
-            The label for the data
+            The label for the data. Default None.
+        figsize: Tuple[int, int]
+            The size of the created figure. Default (10, 10)
+        alpha: float
+            The opacity of a fill. Used only if add_std is set to True. Default 0.2
         Other named arguments will be passed to plot method.
     
     Returns
     -------
-    plt.Figure
-        The plotted figure
+    Optional[plt.Figure]:
+        Returns handle to the plotted figure, if close_fig is set to False, otherwise returns None.
     '''
     title = kwargs.pop("title", "results")
     xlabel = kwargs.pop("xlabel", "x")
     ylabel = kwargs.pop("ylabel", "y")
     label = kwargs.pop("label", None)
-
-    fig, ax = plt.subplots(1,1, figsize=(10, 10))
-    ax.plot(x, y, label=label, **kwargs)
-    ax.set_title(title)
-    ax.set_xlabel(xlabel)
-    ax.set_ylabel(ylabel)
-    if label is not None:
-        ax.legend()
-    return fig
-
-def line_plot_1d(x: npt.NDArray, y: npt.NDArray, filepath: Union[str, PathLike], label: Optional[str] = None, **kwargs) -> None:
-    '''
-    Creates a 1d line-plot with standard deviation interval around the plotted line.
-
-    Parameters
-    ----------
-    x: npt.NDArray
-        The x values. Should be an 1D  array
-    y: npt.NDArray
-        The actual data to plot. Should be an 1D array.
-    filepath: str | PathLike
-        Path to the location where the figure will be stored.
-    label: Optional[str]
-        Label for the line. Default None
-    kwargs: Named arguments
-        title: str
-            The title of the plot. Default Results
-        xlabel: str
-            The x label for the plot. Default x
-        ylabel: str
-            The y label for the plot. Default y
-        alpha: float
-            The opacity of the fill. Default 0.2
-        Other named arguments will be passed to plot method.
-    '''
-    
-    axis = y.shape.index(max(y.shape))
-    std = y.std(axis=axis)
-
-    title = kwargs.pop("title", "Results")
-    xlabel = kwargs.pop("xlabel", "x")
-    ylabel = kwargs.pop("ylabel", "y")
+    figsize = kwargs.pop("figsize", (10, 10))
     alpha = kwargs.pop("alpha", 0.2)
 
-    fig, ax = plt.subplots(1,1,  figsize=(20, 10))
+    fig, ax = plt.subplots(1,1, figsize=figsize)
     ax.plot(x, y, label=label, **kwargs)
+    if add_std:
+        axis = y.shape.index(max(y.shape))
+        std = y.std(axis=axis)
+        ax.fill_between(x, y, y + std, antialiased=True, alpha=alpha)
+        ax.fill_between(x, y, y - std, antialiased=True, alpha=alpha)
+    
     ax.set_title(title)
     ax.set_xlabel(xlabel)
     ax.set_ylabel(ylabel)
-    ax.fill_between(x, y, y + std, antialiased=True, alpha=alpha)
-    ax.fill_between(x, y, y - std, antialiased=True, alpha=alpha)
-
+    
     if label is not None:
         ax.legend()
-    fig.savefig(filepath)
-    plt.close(fig)  
+
+    if filepath is not None:
+        fig.savefig(filepath)
+    
+    if close_fig:
+        plt.close(fig)
+        return None
+    return fig
 
  
 def timestamp_path(path: Union[str, PathLike]) -> PathLike:
@@ -380,6 +360,6 @@ def get_logger(name: str) -> logging.Logger:
     return logging.getLogger(name)
 
 
-def get_writer() -> torch.utils.tensorboard.SummaryWriter:
+def get_writer() -> SummaryWriter: 
     ''' Returns a tensorboard summary writer with correct logging dir'''
     return SummaryWriter(_LOG_DIR)

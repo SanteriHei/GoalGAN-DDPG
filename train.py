@@ -35,7 +35,10 @@ def _clean_up(avg_coverages: npt.NDArray, gan: LSGAN, agent: DDPGAgent, iter_cou
 
     '''
     x = np.arange(0, iter_count)
-    utils.line_plot_1d(x, avg_coverages, "images/training_coverage.png", title="Training coverage", xlabel="Iterations", ylabel="Avg coverage")
+    utils.line_plot(
+        x, avg_coverages, add_std=True, filepath="images/training_coverage.png",  close_fig=True,
+        title="Training coverage", xlabel="iterations", ylabel="avg coverage", figsize=(20, 10)
+    )
     np.save("checkpoints/avg_coverages.npy", avg_coverages)
     gan.close()
     agent.close()
@@ -74,33 +77,29 @@ def _eval_and_update_policy(
     '''
     
     env.goals = goals #Set the current goals for the agent.
-    avg_rewards = np.zeros((episode_count, timestep_count))
+    rewards = np.zeros((episode_count, ))
 
     for ep in range(episode_count):
         state = env.reset()
         for ts in range(timestep_count):
             action = agent.act(state)
             next_state, reward, done = env.step(action)
-
-            avg_rewards[ep, ts] = reward
             agent.step(state, action, reward, next_state, done)
-            
+
+            rewards[ep] = reward
             #If any of the goals was achieved during the episode, we stop and start a new episode
             if done:
                 _logger.info(f"(Episode {ep}): Goal found in {ts} timesteps")
-                #break 
+                break 
 
     #---- Update tensorboard ----------
-    avg_per_episode = avg_rewards.mean(axis=1)
-    fig = utils.line_plot(np.arange(avg_per_episode.shape[0]), avg_per_episode, xlabel="episode", ylabel="avg reward", title="Average reward/episode")
-    _writer.add_figure("rewards/avg-reward", fig, global_step=global_step)
-    plt.close(fig)
+    avg_episode_reward = rewards.mean()
+    _writer.add_scalar("rewards/avg-reward", avg_episode_reward, global_step=global_step)
     agent.log_losses_and_reset(global_step)
 
     # Check how many times each goal was reached during the training, 
     # and normalize the values between (0,1) for goal labeling
-    return env.achieved_goals_counts - np.min(env.achieved_goals_counts)/ np.ptp(env.achieved_goals_counts)
-    #return env.achieved_goals_counts/episode_count
+    return env.achieved_goals_counts/episode_count
 
 
 
@@ -329,7 +328,6 @@ def train(
 
             if consecutive_iters > 10:
                 _logger.critical(f"[iter: {i}] {consecutive_iters} consecutive iters with 0-labels. Aborting!")
-                iter_count = i
                 break
         else:
             consecutive_iters = 0
@@ -338,7 +336,7 @@ def train(
         #Train the Goal GAN with the goals and their labels.
         gan.train(goals, labels, global_step=pretrain_iter_count +i)
 
-        #Update the old goals to ensure that "catastrophic forgetting"
+        #Update the old goals to ensure that "catastrophic forgetting" doesn't happen
         old_goals = _update_replay(gan_goals, old_goals)
         
         #Save the models
