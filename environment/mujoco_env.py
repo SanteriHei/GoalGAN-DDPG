@@ -34,6 +34,8 @@ class MazeEnv:
         self._achieved_goals: Optional[Sequence[bool]] = None
         self._achieved_goals_counts: Optional[npt.NDArray[np.float32]] = None
         
+        self._eval: bool = False
+
         self._tol: float = tol
         self._reward_range: Tuple[float, float] = reward_range
         self._goal_size: int = goal_size if isinstance(goal_size, int) else goal_size[0] 
@@ -85,6 +87,26 @@ class MazeEnv:
         high = self.observation_space.high[0]
         return low, high
 
+ 
+    @property
+    def eval(self) -> bool:
+        '''Returns the current evaluation state'''
+        return self._eval
+
+    @eval.setter
+    def eval(self, val: bool) -> None:
+        '''
+        Sets if the environment is in evaluation mode or not.
+        (e.g. does the environment track which goals are reached)
+
+        Parameter
+        ---------
+        val: bool
+            The new value. If true, the environment tracks which 
+            goals are reached and which not.
+        '''
+        self._eval = val
+
     @property
     def goals(self) -> Sequence[npt.ArrayLike]:
         ''' Returns the current goals'''
@@ -105,7 +127,7 @@ class MazeEnv:
         self._achieved_goals = np.zeros( (len(self._goals), ), dtype=bool)
         self._achieved_goals_counts = np.zeros ( len(self._goals, ), dtype=np.float32)
 
-        self._logger.info("Set new goals, and reseted achieved goals")
+        self._logger.debug("Set new goals, and reseted achieved goals")
 
 
     @property
@@ -159,9 +181,12 @@ class MazeEnv:
             assert g.shape == self._agent_pos.shape, "The shapes of the goals and agent positions don't match"
             if self._is_goal_reached(g):
                 self._logger.debug("A goal was found in Maze")
-                self._achieved_goals[i] = True
-                self._achieved_goals_counts[i] += 1
                 goal_reached = True
+                
+                if self._eval:
+                    self._achieved_goals[i] = True
+                    self._achieved_goals_counts[i] += 1
+                
     
         #A sparse reward function, as the GAN should generate feasible goals.
         reward = max(self._reward_range) if goal_reached else min(self._reward_range)
@@ -170,9 +195,7 @@ class MazeEnv:
     def reset(self) -> npt.NDArray:
         '''
         Resets the current enviroment. (But not goals, nor their statistics) 
-        NOTE: Due to inflexibility with Gym, the reset always takes 
-        one (same) action to get the agents current position.
-
+ 
         Returns
         -------
         npt.NDArray
@@ -183,6 +206,7 @@ class MazeEnv:
         #self._logger.info("Environment reseted")
         assert self._agent_pos is not None, "The agent position was set to None!"
         return obs
+
 
     def render(self,  **kwargs) -> None:
         ''' Renders the enviroment '''

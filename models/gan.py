@@ -3,8 +3,12 @@ import torch.nn as nn
 from torch import optim
 import numpy as np
 
+import matplotlib.pyplot as plt
+
 import pathlib
 from dataclasses import dataclass
+
+
 
 import numpy.typing as npt
 from os import PathLike
@@ -139,22 +143,15 @@ class LSGAN:
         self._discriminator.apply(init_weights)
 
     def close(self) -> None:
-        ''' Closes the tensorboard writer. Call only if all training is done.'''
-        x = np.arange(len(self._generator_losses))
+        ''' 
+        Closes the tensorboard writer, and saves the loss data. 
+        Call only if all training is done.
+        '''
         generator_losses = np.array(self._generator_losses)
         discriminator_losses = np.array(self._discriminator_losses)
         
         np.save("checkpoints/generator_loss.npy", generator_losses)
-        utils.line_plot(
-            x, generator_losses, filepath="images/generator_loss.png",
-            close_fig=True, title="Generator loss", xlabel="iterations", ylabel="loss", figsize=(20, 10)
-        )
-
         np.save("checkpoints/discriminator_loss.npy", discriminator_losses)
-        utils.line_plot(
-            x, discriminator_losses, filepath="images/discriminator_loss.png",
-            close_fig=True, title="Discriminator loss", xlabel="iterations", ylabel="loss", figsize=(20, 10)
-        )
         self._writer.close()
 
     def reset_weights(self) -> None:
@@ -328,7 +325,41 @@ class LSGAN:
         d = self._discriminator
         return (d.forward(g.forward(z)) - self._c)**2
 
-    def train(self, goals: torch.Tensor, labels: npt.NDArray[np.int32], n_iter: int = 1, global_step: Optional[int] = None) -> None:
+    def _log_losses(self, gloss: npt.NDArray, dloss: npt.NDArray, global_step: Optional[int]) -> None:
+        '''
+        Logs the losses from the generator and discriminator to the tensorboard
+
+        Parameters
+        ----------
+        gloss: npt.NDArray
+            The generators loss values from the last training run
+        dloss: npt.NDArray
+            The discriminators loss values from the last training run
+        global_step: int
+            The current global iteration of the training loop.
+
+        '''
+        self._writer.add_scalar("loss/generator", gloss.mean(), global_step=global_step)
+        self._writer.add_scalar("loss/discriminator", dloss.mean(), global_step=global_step)
+
+        x = np.arange(gloss.shape[0])
+        fig_gloss = utils.line_plot(
+            x, gloss, close_fig=False, title=f"Generator loss {global_step}", 
+            ylabel="Loss", xlabel="Iteration", figsize=(25, 10)
+        )
+
+        fig_dloss = utils.line_plot(
+            x, dloss, close_fig=False, title=f"Discriminator loss {global_step}", 
+            ylabel="Loss", xlabel="Iteration", figsize=(25, 10)
+        )
+
+        self._writer.add_figure("loss/generator", fig_gloss, global_step=global_step)
+        self._writer.add_figure("loss/discriminator", fig_dloss, global_step=global_step)
+        plt.close()
+
+
+
+    def train(self, goals: torch.Tensor, labels: npt.NDArray[np.int32], n_iter: int = 200, global_step: Optional[int] = None) -> None:
         '''
         Trains the gan network for given amount of iterations
 
@@ -349,7 +380,10 @@ class LSGAN:
             goals = goals.to(self._device)
 
         self._logger.info(f"Training GAN for {n_iter} iterations")
-        for _ in range(n_iter):
+        dloss = np.zeros((n_iter,))
+        gloss = np.zeros((n_iter,))
+
+        for i in range(n_iter):
             
             #--------Update the Discriminator-----------
 
@@ -369,12 +403,17 @@ class LSGAN:
             generator_loss.backward()
             self._generator_optimizer.step()
             
-            #--------Update tensorboard----------------
+            #--------Save loss data for logging purposes----------------
             self._discriminator_losses.append(discriminator_loss.item())
-            self._writer.add_scalar("loss/discriminator", discriminator_loss.item(), global_step=global_step)
+            dloss[i] = discriminator_loss.item() 
+        
 
             self._generator_losses.append(generator_loss.item())
-            self._writer.add_scalar("loss/generator", generator_loss.item(), global_step=global_step)
+            gloss[i] = generator_loss.item()
+
+        
+        #Update the tensorboard
+        self._log_losses(gloss, dloss, global_step)
 
  
 

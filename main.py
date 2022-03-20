@@ -109,14 +109,14 @@ def _parse_and_train(args: argparse.Namespace) -> None:
     
     if args.save_after is None:
         train(
-            lsgan, agent, env, args.pretrain_iter_count, args.train_iter_count,
-            args.goal_count, args.episode_count, args.timestep_count
+            lsgan, agent, env, args.gan_iter_count, args.policy_iter_count,
+            args.train_iter_count, args.goal_count, args.episode_count, args.timestep_count
         )
     else:
         train(
-            lsgan, agent, env, args.pretrain_iter_count, args.train_iter_count,
-            args.goal_count, args.episode_count, args.timestep_count, 
-            args.save_after, args.gan_save_path, args.agent_save_path
+            lsgan, agent, env, args.gan_iter_count, args.policy_iter_count,
+            args.train_iter_count, args.goal_count, args.episode_count, 
+            args.timestep_count, args.save_after, args.gan_save_path, args.agent_save_path
         )
     _logger.info("Exiting...")
     env.close()
@@ -190,15 +190,17 @@ def get_parser() -> ArgumentParser:
     train_parser = sub_parsers.add_parser("train", description="Train the Goal Gan")
     train_parser.add_argument("--env",                 type=str,  default=_ENV_NAME, help=("The identifier of the used environment."
                                                                                            " Default %(default)s"))
-    train_parser.add_argument("--pretrain-iter-count", type=int,  default=50,       help=("The amount of pretraining iterations used when"
-                                                                                          " training the model. Default %(default)s"))
-    train_parser.add_argument("--train-iter-count",    type=int,  default=100,      help=("The amount training iterations done with "
+    train_parser.add_argument("--gan-iter-count",      type=int,  default=200,       help=("The amount of iterations the gan is trained "
+                                                                                          "for during each outer iteration. Default %(default)s"))
+    train_parser.add_argument("--train-iter-count",    type=int,  default=100,       help=("The amount training iterations done with "
                                                                                           "the model. Default %(default)s"))
-    train_parser.add_argument("--goal-count",          type=int,  default=10,       help=("The amount of goals produced by the Goal"
+    train_parser.add_argument("--policy-iter-count",   type=int,  default=5,         help=("The amount of iterations the policy is updated "
+                                                                                          "for during each outer iteration. Default %(default)s"))
+    train_parser.add_argument("--goal-count",          type=int,  default=10,        help=("The amount of goals produced by the Goal"
                                                                                           " GAN during each iteration. Default %(default)s") )
-    train_parser.add_argument("--timestep-count",      type=int,  default=500,      help=("The amount of timesteps allowed in each"
+    train_parser.add_argument("--timestep-count",      type=int,  default=500,       help=("The amount of timesteps allowed in each"
                                                                                           " episode. Default %(default)s "))
-    train_parser.add_argument("--episode-count",       type=int,  default=10,       help=("The amount of episodes evaluated on each"
+    train_parser.add_argument("--episode-count",       type=int,  default=10,        help=("The amount of episodes evaluated on each"
                                                                                           " set of goals. Default %(default)s"))
 
     # <<<<< Continue from previously trained model >>>>>
