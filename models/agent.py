@@ -144,10 +144,7 @@ class DDPGAgent:
         assert len(value) == 1, f"Expected a 1D size, but got {value}, with ndim {len(value)}"
         return value[0]
 
-    def step(
-            self, state: npt.NDArray, action: npt.NDArray, reward: float, 
-            next_state: npt.NDArray, done: bool, global_step: Optional[int] = None
-        ) -> None:
+    def step(self, state: npt.NDArray, action: npt.NDArray, reward: float, next_state: npt.NDArray, done: bool) -> None:
         '''
         Takes a step with the action, and updates the replay buffer. If enough data is 
         saved, the agent will be trained
@@ -164,15 +161,13 @@ class DDPGAgent:
             The state that was achieved by taking the action.
         done: bool 
             Was the task completed.
-        global_step: Optional[int],
-            The global training step, used for logging purposes. Default None.
         '''
         exp = Experience(state=state, action=action, reward=reward, next_state=next_state, done=done)
         self._buffer.append(exp)
 
         if len(self._buffer) > self._buffer.batch_size:
             experiences = self._buffer.sample()
-            self.learn(experiences, global_step)
+            self.learn(experiences)
 
 
     def act(self, state: npt.NDArray, use_noise: bool = True, range: Tuple[float, float] = (0.0, 1.0)) -> npt.NDArray:
@@ -241,7 +236,11 @@ class DDPGAgent:
 
         self._actor_losses = []
         self._critic_losses = []
+
+        fig_actor_loss.savefig(f"images/actor_loss_{global_step}.png")
         plt.close(fig_actor_loss)
+
+        fig_critic_loss.savefig(f"images/critic_loss_{global_step}.png")
         plt.close(fig_critic_loss)
 
 

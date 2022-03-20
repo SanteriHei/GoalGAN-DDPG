@@ -130,6 +130,9 @@ class LSGAN:
         #For logging to console and tensorboard
         self._logger = utils.get_logger(__name__)
         self._writer = utils.get_writer()
+        self._discriminator_losses = []
+        self._generator_losses = []
+
 
         #Apply Xavier uniform weight initialization
         self._generator.apply(init_weights)
@@ -137,6 +140,21 @@ class LSGAN:
 
     def close(self) -> None:
         ''' Closes the tensorboard writer. Call only if all training is done.'''
+        x = np.arange(len(self._generator_losses))
+        generator_losses = np.array(self._generator_losses)
+        discriminator_losses = np.array(self._discriminator_losses)
+        
+        np.save("checkpoints/generator_loss.npy", generator_losses)
+        utils.line_plot(
+            x, generator_losses, filepath="images/generator_loss.png",
+            close_fig=True, title="Generator loss", xlabel="iterations", ylabel="loss", figsize=(20, 10)
+        )
+
+        np.save("checkpoints/discriminator_loss.npy", discriminator_losses)
+        utils.line_plot(
+            x, discriminator_losses, filepath="images/discriminator_loss.png",
+            close_fig=True, title="Discriminator loss", xlabel="iterations", ylabel="loss", figsize=(20, 10)
+        )
         self._writer.close()
 
     def reset_weights(self) -> None:
@@ -352,7 +370,10 @@ class LSGAN:
             self._generator_optimizer.step()
             
             #--------Update tensorboard----------------
+            self._discriminator_losses.append(discriminator_loss.item())
             self._writer.add_scalar("loss/discriminator", discriminator_loss.item(), global_step=global_step)
+
+            self._generator_losses.append(generator_loss.item())
             self._writer.add_scalar("loss/generator", generator_loss.item(), global_step=global_step)
 
  

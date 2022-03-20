@@ -47,7 +47,8 @@ def _clean_up(avg_coverages: npt.NDArray, gan: LSGAN, agent: DDPGAgent, iter_cou
 
 def _eval_and_update_policy(
     agent: DDPGAgent, env: MazeEnv, goals: Sequence[npt.NDArray], 
-    episode_count: int, timestep_count: int, global_step: Optional[int] = None
+    episode_count: int, timestep_count: int, global_step: Optional[int] = None,
+    global_rewards: npt.NDArray = None
     ) -> npt.NDArray[np.float32]:
     '''
     Evaluates the agents current policy for the current goals, and adds the experience to the 
@@ -94,6 +95,7 @@ def _eval_and_update_policy(
 
     #---- Update tensorboard ----------
     avg_episode_reward = rewards.mean()
+    global_rewards[global_step] = avg_episode_reward
     _writer.add_scalar("rewards/avg-reward", avg_episode_reward, global_step=global_step)
     agent.log_losses_and_reset(global_step)
 
@@ -284,6 +286,8 @@ def train(
     
     #Save the mean value of the returns to plot a "coverage" graph
     avg_coverages = np.zeros((iter_count, ), dtype=np.float64)
+    rewards = np.zeros((iter_count, ), dtype=np.float64)
+
 
     _logger.info(f"Starting pre-training")
     old_goals = _initialize_gan(gan, agent, env, pretrain_iter_count, goal_count, episode_count, timestep_count)
@@ -314,7 +318,7 @@ def train(
 
         #Evaluate & update the agent.
         _logger.info("Starting evaluation and updating of the policy")
-        returns = _eval_and_update_policy(agent, env, goals.detach().cpu().numpy(), episode_count, timestep_count, i)
+        returns = _eval_and_update_policy(agent, env, goals.detach().cpu().numpy(), episode_count, timestep_count, i, rewards)
         avg_coverages[i] = np.mean(returns)
         _logger.info("Evaluated and updated the policy")
 
@@ -349,6 +353,14 @@ def train(
             gan.save_model(gan_path)
             _logger.info(f"Iteration {i}: Saved gan to {gan_path}")
     
+    x = np.arange(rewards.shape[0])
+    utils.line_plot(
+        x, rewards, filepath="images/avg_rewards.png", close_fig=True,
+        title="Average rewards", xlabel="outer iteration", ylabel="average reward",
+        figsize=(20, 10) 
+    )
+    np.save("checkpoints/avg_rewards.npy", rewards)
+
     _clean_up(avg_coverages, gan, agent, iter_count)
     _logger.info("Training done!")
 
