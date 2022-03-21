@@ -168,7 +168,7 @@ def _add_ddpg_hyperparameters(group) -> None:
                                                                                                    " doing a soft update with DDPG agent. Default %(default)s"))
     group.add_argument("--gamma",                type=float, default=1e-3,                   help=("Defines the discount factor used value"
                                                                                                    " function of the Agent. Default %(default)s"))
-    group.add_argument("--buffer-size",          type=int,   default=int(1e5),               help=("Defines the maximum buffer size for the"
+    group.add_argument("--buffer-size",          type=int,   default=1000,                   help=("Defines the maximum buffer size for the"
                                                                                                    " replay memory of the Agent. Default %(default)s"))
     group.add_argument("--batch-size",           type=int,   default=128 ,                   help=("Defines the batch size of the replay buffer,"
                                                                                                    " i.e. the size of sampling. Default %(default)s"))
