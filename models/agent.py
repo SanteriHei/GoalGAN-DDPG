@@ -166,6 +166,7 @@ class DDPGAgent:
         self._buffer.append(exp)
 
         if len(self._buffer) > self._buffer.batch_size:
+            self._logger.debug("Updating the DDPG agent")
             experiences = self._buffer.sample()
             self.learn(experiences)
 
