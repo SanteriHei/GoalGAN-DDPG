@@ -71,7 +71,7 @@ def set_logging_config() -> None:
     '''Sets up the configuration for the logger '''
     logging.basicConfig(
         level=logging.INFO,
-        format="%(asctime)s %(module)-10s:%(funcName)-20s %(levelname)-8s %(message)s",
+        format="%(asctime)s %(module)-10s:%(funcName)-25s %(levelname)-8s %(message)s",
         datefmt=_TIMESTAMP_FMT,
         filename="training.log",
         filemode="w"

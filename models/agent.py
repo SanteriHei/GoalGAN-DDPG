@@ -237,10 +237,7 @@ class DDPGAgent:
         self._actor_losses = []
         self._critic_losses = []
 
-        fig_actor_loss.savefig(f"images/actor_loss_{global_step}.png")
         plt.close(fig_actor_loss)
-
-        fig_critic_loss.savefig(f"images/critic_loss_{global_step}.png")
         plt.close(fig_critic_loss)
 
 

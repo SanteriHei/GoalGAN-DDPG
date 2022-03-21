@@ -235,7 +235,7 @@ def _initialize_gan(
 
 
 def _create_goals(
-    gan: LSGAN, old_goals: torch.Tensor, 
+    gan: LSGAN, old_goals: Optional[torch.Tensor], 
     goal_size: int, goal_counts: Dict[str, int] 
 ) -> Tuple[torch.Tensor, torch.Tensor]:
     '''
@@ -245,8 +245,9 @@ def _create_goals(
     ----------
     gan: LSGAN
         The GAN network used to generate goals
-    old_goals: torch.Tensor
-        Set of old goals from previous iterations
+    old_goals: Optional[torch.Tensor]
+        Set of old goals from previous iterations. If there is no
+        previous goals, use None instead.
     goal_size: int
         The size of the generaetd goals
     goal_counts: Dict[str, int]
@@ -269,15 +270,14 @@ def _create_goals(
     #Create goals from the noize
     gan_goals = gan.generate_goals(z).detach()
 
-    #Ensure that all goals are in same device
-    
+
     #Use 50% of random goals, and 50% of generated goals (See Appendix B.4 from Florensa et al. 2018)
     rand_goals = torch.Tensor(random_goal_count, goal_size).uniform_(-1, 1).to(gan_goals.device)
     if old_goals is not None:
         old_goals = old_goals.to(gan_goals.device)
         return torch.cat([gan_goals, utils.sample_tensor(old_goals, random_goal_count), rand_goals]), gan_goals
     else:
-        return torch.cat([gan_goals, rand_goals]), gan
+        return torch.cat([gan_goals, rand_goals]), gan_goals
     
     
 
@@ -355,7 +355,6 @@ def train(
     old_goals = None
     for i in range(iter_count):
         _logger.info(f"OUTER ITERATION {i}")
-
         if (i + 1)%10 == 0:
             utils.display_agent_and_goals(
                 env.agent_pos, goals.detach().cpu().numpy(), env.limits, 
@@ -379,7 +378,6 @@ def train(
         _logger.info("Stopping evaluating the policy")
         
         avg_coverages[i] = np.mean(returns)
-
 
         #Label the goals to be either in the GOID or not. Range 0.1 <= x <= 0.9 is used as in the original paper.
         labels = utils.label_goals(returns)

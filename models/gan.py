@@ -354,8 +354,10 @@ class LSGAN:
         )
 
         self._writer.add_figure("loss/generator", fig_gloss, global_step=global_step)
+        plt.close(fig_gloss)
+        
         self._writer.add_figure("loss/discriminator", fig_dloss, global_step=global_step)
-        plt.close()
+        plt.close(fig_dloss)
 
 
 
