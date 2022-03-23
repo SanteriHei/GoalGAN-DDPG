@@ -89,8 +89,14 @@ def _parse_and_train(args: argparse.Namespace) -> None:
     _logger.info(f"Using device: {utils.get_device_repr(device)}")
 
     #Create configurations for generator and discriminator, with the specified hyperparameters.
-    generator_config = GANConfig(opt_lr=args.gen_lr, opt_alpha=args.gen_alpha, opt_momentum=args.gen_momentum)
-    discriminator_config = GANConfig(opt_lr=args.disc_lr, opt_alpha=args.disc_alpha, opt_momentum=args.disc_momentum)
+    generator_config = GANConfig(
+        hidden_size=args.gen_hidden_size, layer_count=args.gen_layer_count,
+        opt_lr=args.gen_lr, opt_alpha=args.gen_alpha, opt_momentum=args.gen_momentum
+    )
+    discriminator_config = GANConfig(
+        hidden_size=args.disc_hidden_size, layer_count=args.disc_layer_count,
+        opt_lr=args.disc_lr, opt_alpha=args.disc_alpha, opt_momentum=args.disc_momentum
+    )
 
     #Create configuration for the DDPG Agent with specified hyperparameters.
     ddpg_config = DDPGConfig(
@@ -110,13 +116,15 @@ def _parse_and_train(args: argparse.Namespace) -> None:
     if args.save_after is None:
         train(
             lsgan, agent, env, args.gan_iter_count, args.policy_iter_count,
-            args.train_iter_count, args.goal_count, args.episode_count, args.timestep_count
+            args.train_iter_count, args.goal_count, args.episode_count, args.timestep_count, 
+            args.rmin, args.rmax
         )
     else:
         train(
             lsgan, agent, env, args.gan_iter_count, args.policy_iter_count,
             args.train_iter_count, args.goal_count, args.episode_count, 
-            args.timestep_count, args.save_after, args.gan_save_path, args.agent_save_path
+            args.timestep_count, args.rmin, args.rmax, args.save_after, 
+            args.gan_save_path, args.agent_save_path
         )
     _logger.info("Exiting...")
     env.close()
@@ -188,21 +196,24 @@ def get_parser() -> ArgumentParser:
     
     # ---------------- CLI for training the network ------------------------------------
     train_parser = sub_parsers.add_parser("train", description="Train the Goal Gan")
-    train_parser.add_argument("--env",                 type=str,  default=_ENV_NAME, help=("The identifier of the used environment."
-                                                                                           " Default %(default)s"))
-    train_parser.add_argument("--gan-iter-count",      type=int,  default=200,       help=("The amount of iterations the gan is trained "
-                                                                                          "for during each outer iteration. Default %(default)s"))
-    train_parser.add_argument("--train-iter-count",    type=int,  default=100,       help=("The amount training iterations done with "
-                                                                                          "the model. Default %(default)s"))
-    train_parser.add_argument("--policy-iter-count",   type=int,  default=5,         help=("The amount of iterations the policy is updated "
-                                                                                          "for during each outer iteration. Default %(default)s"))
-    train_parser.add_argument("--goal-count",          type=int,  default=10,        help=("The amount of goals produced by the Goal"
-                                                                                          " GAN during each iteration. Default %(default)s") )
-    train_parser.add_argument("--timestep-count",      type=int,  default=500,       help=("The amount of timesteps allowed in each"
-                                                                                          " episode. Default %(default)s "))
-    train_parser.add_argument("--episode-count",       type=int,  default=10,        help=("The amount of episodes evaluated on each"
-                                                                                          " set of goals. Default %(default)s"))
-
+    train_parser.add_argument("--env",                 type=str,   default=_ENV_NAME, help=("The identifier of the used environment."
+                                                                                            " Default %(default)s"))
+    train_parser.add_argument("--gan-iter-count",      type=int,   default=200,       help=("The amount of iterations the gan is trained "
+                                                                                           "for during each outer iteration. Default %(default)s"))
+    train_parser.add_argument("--train-iter-count",    type=int,   default=100,       help=("The amount training iterations done with "
+                                                                                           "the model. Default %(default)s"))
+    train_parser.add_argument("--policy-iter-count",   type=int,   default=5,         help=("The amount of iterations the policy is updated "
+                                                                                           "for during each outer iteration. Default %(default)s"))
+    train_parser.add_argument("--goal-count",          type=int,   default=10,        help=("The amount of goals produced by the Goal"
+                                                                                           " GAN during each iteration. Default %(default)s") )
+    train_parser.add_argument("--timestep-count",      type=int,   default=500,       help=("The amount of timesteps allowed in each"
+                                                                                           " episode. Default %(default)s "))
+    train_parser.add_argument("--episode-count",       type=int,   default=10,        help=("The amount of episodes evaluated on each"
+                                                                                           " set of goals. Default %(default)s"))
+    train_parser.add_argument("--rmax",                type=float, default=0.9,       help=("The highest evalution score that is considered to"
+                                                                                           " be feasible. Default %(default)s "))
+    train_parser.add_argument("--rmin",                type=float, default=0.1,       help=("The lowest evaluation score that is considered to"
+                                                                                           " be feasible. Default %(default)s"))
     # <<<<< Continue from previously trained model >>>>>
     continue_group = train_parser.add_argument_group("Continue training from previously saved model") 
     continue_group.add_argument("--use-checkpoint",  action="store_true", help=("If this flag is set, "
@@ -228,9 +239,9 @@ def get_parser() -> ArgumentParser:
 
     # <<<<< GAN Hyperparameters >>>>> 
     gan_hp_group = train_parser.add_argument_group("GAN hyperparameters") 
-    gan_hp_group.add_argument("--generator-layer-count",       type=int,   default=5,    dest="gen_nlayers",      help=("Defines the amount of linear layers used"
+    gan_hp_group.add_argument("--generator-layer-count",       type=int,   default=2,    dest="gen_nlayers",      help=("Defines the amount of linear layers used"
                                                                                                                         " in the Generator. Default %(default)s"))
-    gan_hp_group.add_argument("--generator-hidden-size",       type=int,   default=256,  dest="gen_hidden_size",  help=("Defines the size of the hidden layers used"
+    gan_hp_group.add_argument("--generator-hidden-size",       type=int,   default=128,  dest="gen_hidden_size",  help=("Defines the size of the hidden layers used"
                                                                                                                         " in the Generator. Default %(default)s"))
     gan_hp_group.add_argument("--generator-learning_rate",     type=float, default=0.01, dest="gen_lr",           help=("Defines learning rate used "
                                                                                                                         "with the Generator's optimizer. Default %(default)s"))
@@ -238,7 +249,7 @@ def get_parser() -> ArgumentParser:
                                                                                                                         "the Generator's optimizer. Default %(default)s"))
     gan_hp_group.add_argument("--generator-momentum",          type=float, default=1e-3, dest="gen_momentum",     help=("Defines the momentum used with"
                                                                                                                         " the Generator's optimizer. Default %(default)s"))
-    gan_hp_group.add_argument("--discriminator-layer-count",   type=int,   default=5,    dest="disc_nlayers",     help=("Defines the amount of linear layers used"
+    gan_hp_group.add_argument("--discriminator-layer-count",   type=int,   default=2,    dest="disc_nlayers",     help=("Defines the amount of linear layers used"
                                                                                                                         " in the Discriminator. Default %(default)s"))
     gan_hp_group.add_argument("--discriminator-hidden-size",   type=int,   default=256,  dest="disc_hidden_size", help=("Defines the size of the hidden layers used"
                                                                                                                         " in the Discriminator. Default %(default)s"))

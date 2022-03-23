@@ -218,6 +218,9 @@ class DDPGAgent:
         global_step: Optional[int]
             The global training step.
         '''
+
+        self._logger.debug(f"ITERATION {global_step} Logging losses ")
+
         x = np.arange(len(self._actor_losses))
         actor_loss = np.array(self._actor_losses)
         critic_loss = np.array(self._critic_losses)

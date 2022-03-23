@@ -6,7 +6,7 @@ import matplotlib.pyplot as plt
 import pathlib
 import datetime
 
-from typing import Iterable, Union, Tuple, Optional
+from typing import Iterable, Union, Tuple, Optional, Mapping
 from os import PathLike
 import numpy.typing as npt
 
@@ -21,8 +21,15 @@ _WIDTH: int = 100
 _HEIGHT: int = 250
 _BARRIER_WIDTH: int = 50
 _TIMESTAMP_FMT: str = "%m-%d %H:%M:%S"
+_COLORS: Mapping[str, str] = {
+    "low": "r",
+    "goid": "b",
+    "high": "g"
+}
 
-_LOG_DIR = f"runs/{datetime.datetime.now().strftime('%m-%dT%H:%M')}"
+
+_LOG_DIR: str= f"runs/{datetime.datetime.now().strftime('%m-%dT%H:%M')}"
+
 
 
 def _rescale(data: Union[Numeric, npt.NDArray], old_range: Tuple[float, float], new_range: Tuple[float, float] = (0.0, 1.0)) -> Union[Numeric, npt.NDArray]:
@@ -70,7 +77,7 @@ def _create_env_image() -> npt.NDArray:
 def set_logging_config() -> None:
     '''Sets up the configuration for the logger '''
     logging.basicConfig(
-        level=logging.INFO,
+        level=logging.DEBUG,
         format="%(asctime)s %(module)-10s:%(funcName)-25s %(levelname)-8s %(message)s",
         datefmt=_TIMESTAMP_FMT,
         filename="training.log",
@@ -79,9 +86,12 @@ def set_logging_config() -> None:
 
     console= logging.StreamHandler()
     console.setLevel(logging.INFO)
-    formatter = logging.Formatter("%(module)-10s:%(funcName)-20s %(levelname)-8s %(message)s")
+    formatter = logging.Formatter("%(module)-10s:%(funcName)-25s %(levelname)-8s %(message)s")
     console.setFormatter(formatter)
     logging.getLogger('').addHandler(console)
+
+    #Hack to stop matplotlib from polluting the log-file
+    logging.getLogger('matplotlib.font_manager').disabled = True
 
 
 
@@ -150,7 +160,11 @@ def get_device_repr(device: Union[str, torch.device]) -> str:
 
 
 
-def display_agent_and_goals(agent_pos: npt.NDArray, goals: npt.ArrayLike, coord_range: Tuple[float, float], filepath: Optional[Union[str, PathLike]] = None, ax: plt.Axes = None, **kwargs) -> None:
+def display_agent_and_goals(
+    agent_pos: npt.NDArray, goals: npt.ArrayLike, returns: npt.ArrayLike, 
+    coord_range: Tuple[float, float], rmin: float, rmax: float, 
+    filepath: Optional[Union[str, PathLike]] = None, ax: plt.Axes = None, **kwargs
+) -> None:
     '''
     Displays the current position of the agent, and the current goals.
 
@@ -161,8 +175,14 @@ def display_agent_and_goals(agent_pos: npt.NDArray, goals: npt.ArrayLike, coord_
     goals: npt.NDArray
         The goals. Each element should be a 2-element array 
         presenting the (x,y) coordinate pairs
+    returns: npt.NDArray
+        The evaluation values of the goals
     coord_range: Tuple[float, float]
         The coordinate range, where the given points are in.
+    rmin: float
+        The minimum evaluation value that is counted as feasible goal.
+    rmax: float
+        The maximum evalution value that is counted as feasible goal.
     filepath: Optional[str | PathLike]
         Filepath, where the image will be saved to. If it is None, 
         the image is not saved. Note: To use this option, ax must be None. Default None.
@@ -174,8 +194,6 @@ def display_agent_and_goals(agent_pos: npt.NDArray, goals: npt.ArrayLike, coord_
             Title for the image
         pos_label: str
             Label for the agent position
-        goal_label: str
-            Label for the goal(s)
         All other specified option's will be given to the ax.imshow method
     '''
     base_img = _create_env_image()
@@ -189,7 +207,6 @@ def display_agent_and_goals(agent_pos: npt.NDArray, goals: npt.ArrayLike, coord_
 
 
     pos_label = kwargs.pop("pos_label", None)
-    goal_label = kwargs.pop("goal_label", None)
     title = kwargs.pop("title", None)
 
     #Plot the actual image
@@ -203,15 +220,22 @@ def display_agent_and_goals(agent_pos: npt.NDArray, goals: npt.ArrayLike, coord_
     scaled_pos = _rescale(agent_pos, coord_range, (0, _IMG_SIZE[0]))
     scaled_goals = _rescale(goals, coord_range, (0, _IMG_SIZE[0]))
 
-    x, y = scaled_goals if scaled_goals.shape[0] == 2 else scaled_goals.T
+    scaled_goals = scaled_goals if scaled_goals.shape[0] == 2 else scaled_goals.T
 
-    ax.scatter(scaled_pos[0], scaled_pos[1], c="r", s=60, marker='x', label=pos_label)
-    ax.scatter(x, y, c="b", s=60, marker="o", label=goal_label)
+    ax.scatter(scaled_pos[0], scaled_pos[1], c="m", s=60, marker='x', label=pos_label)
+
+    #Separate the easy, feasible and difficult goals
+    low_res = scaled_goals[:, returns < rmin]    
+    high_res = scaled_goals[:, returns > rmax]
+    goid = scaled_goals[:, ((returns >= rmin) & (returns <= rmax))]
+
+    ax.scatter(low_res[0], low_res[0], c=_COLORS["low"], s=60, marker="o", label=r"$R < R_{min}$")
+    ax.scatter(goid[0], goid[1], c=_COLORS["goid"], s=60, marker="o", label=r"$R_{min} \leq R \leq R_{max}$")
+    ax.scatter(high_res[0], high_res[1], c=_COLORS["high"], s=60, marker="o", label=r"$R > R_{max}$")
+    
     ax.invert_yaxis() #Y-axis is inverted in the coordinate systems.
-
-    #If one of the labels was specified, draw it.
-    if goal_label is not None or pos_label is not None:
-        ax.legend(fontsize=8)
+    
+    ax.legend(fontsize=8, loc="upper right")
 
     if fig is not None and filepath is not None:
         filepath = filepath if isinstance(filepath, pathlib.PurePath) else pathlib.Path(filepath)

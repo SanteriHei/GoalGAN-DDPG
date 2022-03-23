@@ -30,9 +30,9 @@ class GANConfig:
     hidden_size: int, Optional
         The size of the hidden layers. Default 256.
     output_size: int, Optional
-        The size of the networks output. Default 3.
+        The size of the networks output. Default 2.
     layer_count: int, Optional
-        The amount of linear layers used in the network. Default 5.
+        The amount of linear layers used in the network. Default 2.
     opt_lr: float, Optional
         The learning rate of the optimizer used. Default 0.01
     opt_alpha: float, Optional
@@ -42,8 +42,8 @@ class GANConfig:
     '''
     input_size: int = 4
     hidden_size: int = 256
-    output_size: int = 3
-    layer_count: int = 5
+    output_size: int = 2
+    layer_count: int = 2
     opt_lr: float = 0.01
     opt_alpha: float = 0.99
     opt_momentum: float = 1e-3
@@ -339,10 +339,10 @@ class LSGAN:
             The current global iteration of the training loop.
 
         '''
-        self._writer.add_scalar("loss/generator", gloss.mean(), global_step=global_step)
-        self._writer.add_scalar("loss/discriminator", dloss.mean(), global_step=global_step)
 
-        x = np.arange(gloss.shape[0])
+        self._logger.debug(f"ITERATION {global_step}: Logging GAN's losses")
+        x = np.arange(len(gloss))
+        
         fig_gloss = utils.line_plot(
             x, gloss, close_fig=False, title=f"Generator loss {global_step}", 
             ylabel="Loss", xlabel="Iteration", figsize=(25, 10)
@@ -406,13 +406,12 @@ class LSGAN:
             self._generator_optimizer.step()
             
             #--------Save loss data for logging purposes----------------
+
             self._discriminator_losses.append(discriminator_loss.item())
             dloss[i] = discriminator_loss.item() 
-        
 
             self._generator_losses.append(generator_loss.item())
             gloss[i] = generator_loss.item()
-
         
         #Update the tensorboard
         self._log_losses(gloss, dloss, global_step)
@@ -454,7 +453,6 @@ class Generator(nn.Module):
             else:
                 self._layers.append(nn.Linear(hidden_size, output_size))
                 self._layers.append(nn.Tanh())
-
     
     def forward(self, x: torch.Tensor) -> torch.Tensor:
         '''

@@ -184,6 +184,7 @@ class MazeEnv:
                 goal_reached = True
                 
                 if self._eval:
+                    self._logger.debug("Eval mode: add goal statistics")
                     self._achieved_goals[i] = True
                     self._achieved_goals_counts[i] += 1
                 
