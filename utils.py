@@ -1,3 +1,4 @@
+import warnings
 import torch
 from torch.utils.tensorboard import SummaryWriter
 import numpy as np
@@ -243,6 +244,10 @@ def display_agent_and_goals(
         #If the parent directories, create them.
         if not filepath.parent.exists():
             filepath.parent.mkdir(parents=True, exist_ok=True)
+        
+        if filepath.suffix != '.svg': 
+            warnings.warn(f"Note: Savign as .svg is recommended (using {filepath.suffix} now)")
+
         fig.savefig(filepath)    
         plt.close()
 
@@ -290,6 +295,7 @@ def line_plot(x: npt.NDArray, y: npt.NDArray, add_std: bool = False, filepath: O
     label = kwargs.pop("label", None)
     figsize = kwargs.pop("figsize", (10, 10))
     alpha = kwargs.pop("alpha", 0.2)
+    grid = kwargs.pop("grid", None)
 
     fig, ax = plt.subplots(1,1, figsize=figsize)
     ax.plot(x, y, label=label, **kwargs)
@@ -302,7 +308,8 @@ def line_plot(x: npt.NDArray, y: npt.NDArray, add_std: bool = False, filepath: O
     ax.set_title(title)
     ax.set_xlabel(xlabel)
     ax.set_ylabel(ylabel)
-    
+    ax.grid(grid)
+
     if label is not None:
         ax.legend()
 

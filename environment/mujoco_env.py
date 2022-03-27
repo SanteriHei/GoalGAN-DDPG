@@ -18,10 +18,12 @@ class MazeEnv:
     ----------
     env_name: str
         The name of the enviroment. Should be one of the OpenAI gym enviroments
+    goal_size: Tuple[int] | int 
+        The size of a single goal in the environment.
     initial_goals: Sequence[np.ndarray], Optional
         The initial goals for the enviroment. Default None
     tol: float, Optional
-        The allowed tolerance, when a goal is counted as reached. Default 1e-5
+        The allowed tolerance, when a goal is counted as reached. Default 1e-2
     reward_range: Tuple[float, float], Optional
         The range, where the results should be. Default (0.0, 1.0)
     '''

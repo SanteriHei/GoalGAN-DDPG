@@ -1,5 +1,4 @@
 import torch
-
 import numpy as np
 import pathlib
 
@@ -8,10 +7,9 @@ from models.agent import DDPGAgent
 from environment.mujoco_env import MazeEnv
 import utils
 
-from typing import Dict, Sequence, Optional, Union, Tuple
-from os import PathLike
+from typing import Sequence, Optional, Tuple, Union
 import numpy.typing as npt
-
+from os import PathLike
 
 _logger = utils.get_logger(__name__)
 _writer = utils.get_writer()
@@ -39,7 +37,7 @@ def _clean_up(avg_coverages: npt.NDArray, rewards: npt.NDArray, gan: LSGAN, agen
     np.save("checkpoints/avg_coverages.npy", avg_coverages)
     utils.line_plot(
         np.arange(avg_coverages.shape[0]), avg_coverages, close_fig=True, 
-        filepath="images/training_coverage.png", title="Training coverage",
+        filepath="images/training_coverage.svg", title="Training coverage",
         xlabel="iterations", ylabel="avg coverage", figsize=(25, 10)
     )
     
@@ -48,7 +46,7 @@ def _clean_up(avg_coverages: npt.NDArray, rewards: npt.NDArray, gan: LSGAN, agen
     x = np.arange(rewards.shape[0])
     utils.line_plot(
         np.arange(rewards.shape[0]), rewards,  close_fig=True,
-        filepath="images/avg_rewards.png", title="Average rewards",
+        filepath="images/avg_rewards.svg", title="Average rewards",
         xlabel="Outer iteration", ylabel="Avg reward/episode", figsize=(25, 10) 
     )
 
@@ -111,13 +109,14 @@ def _update_or_eval_policy(
                     _logger.info(f"(iter: {i}, Episode: {ep}): Goal found in {ts} timesteps")
                     break
     avg_reward = rewards.mean()
-    global_rewards[global_step] = avg_reward
+   
 
     _writer.add_scalar(f"reward/{tag}-avg-reward", avg_reward, global_step=global_step)
     if not eval_mode:
         agent.log_losses_and_reset(global_step)
 
     if eval_mode:
+        global_rewards[global_step] = avg_reward
         return np.clip(env.achieved_goals_counts/(policy_iter_count*episode_count), 0,1)
 
 
@@ -233,11 +232,11 @@ def _initialize_gan(
     goals = rng.uniform(*env.limits, size=(goal_count, env.goal_size))
     visited_positions = _observe_states(agent, env, goals, episode_count, timestep_count)
     labels = np.ones((max(visited_positions.shape), ))
-    gan.train(torch.from_numpy(visited_positions), labels, gan_iter_count, global_step=1)
+    gan.train(torch.from_numpy(visited_positions), labels, gan_iter_count, global_step=0)
 
 
 
-def _create_goals(gan: LSGAN, goal_count: int) -> torch.Tensor:
+def _create_goals(gan: LSGAN, goal_count: int, range: Tuple[float, float]) -> torch.Tensor:
     '''
     Creates new set of goals for the Agent to learn.
 
@@ -256,7 +255,11 @@ def _create_goals(gan: LSGAN, goal_count: int) -> torch.Tensor:
     #Sample noise
     z = torch.randn((goal_count, gan.generator_input_size)) 
     #Create goals from the noize
-    return gan.generate_goals(z).detach()    
+    goals = gan.generate_goals(z).detach()
+
+    #Add 0-mean, unit variance noise to the goals
+    return torch.clip(goals + 0.1*torch.normal(0, 1, goals.shape).to(goals.device), *range)
+    
     
 
 def train(
@@ -311,11 +314,14 @@ def train(
         filenames will contain iteration counts, that will specify the time of the training process when the model was saved.
     '''
 
+
     if save_after is not None and (gan_base_path is None and ddpg_base_path is None):
         raise ValueError("If save_after is specified, then atleast one of the following must be specified: gan_base_path, ddpg_base_path")
+    if ddpg_base_path is not None:
+        ddpg_base_path = pathlib.Path(ddpg_base_path) if not isinstance(ddpg_base_path, pathlib.PurePath) else ddpg_base_path
     
-    ddpg_base_path = pathlib.Path(ddpg_base_path) if not isinstance(ddpg_base_path, pathlib.PurePath) else ddpg_base_path
-    gan_base_path = pathlib.Path(gan_base_path) if not isinstance(gan_base_path, pathlib.PurePath) else gan_base_path 
+    if gan_base_path is not None:
+        gan_base_path = pathlib.Path(gan_base_path) if not isinstance(gan_base_path, pathlib.PurePath) else gan_base_path 
 
     #2/3 gan generated goals and 1/3 of random goals. See Florensa et al. pp. 7
     old_goal_count = goal_count // 3
@@ -335,13 +341,18 @@ def train(
     #Count on how many consecutive iterations the agent cannot reach any of it's goals.
     consecutive_iters = 0
     
-    old_goals = None
+    #Use points that are close to the agent as the first set of old goals
+    old_goals = torch.clip(
+        torch.from_numpy(env.agent_pos.astype(np.float32)) + 0.5*torch.normal(0, 1, (old_goal_count, env.goal_size)), *env.limits
+    ).to(gan.device)
+
     for i in range(iter_count):
-        _logger.info(f"OUTER ITERATION {i}")
+        _logger.info(f"OUTER ITERATION {i+1}")
     
         #---------- Create Goals -------------
-        gan_goals = _create_goals(gan,  gan_goal_count)
+        gan_goals = _create_goals(gan,  gan_goal_count, env.limits)
         goals = gan_goals if old_goals is None else torch.cat([gan_goals, utils.sample_tensor(old_goals, old_goal_count)])
+        
         env.goals = goals.detach().cpu().numpy()
 
         #---------- Update the policy ---------
@@ -351,7 +362,7 @@ def train(
 
         #---------- Evaluate the Policy -------
         _logger.info("Starting evaluating the policy")
-        returns = _update_or_eval_policy(agent, env, 1, episode_count, timestep_count, eval_mode=True, global_step=i)
+        returns = _update_or_eval_policy(agent, env, 1, episode_count, timestep_count, eval_mode=True, global_rewards=rewards, global_step=i)
         _logger.info("Stopping evaluating the policy")
         
         avg_coverages[i] = np.mean(returns)
@@ -359,17 +370,22 @@ def train(
         #---------- Label goals ---------------
         labels = utils.label_goals(returns, rmin, rmax)
 
+
+        # --------- Early stop ----------------
         if np.all(labels == 0):
             consecutive_iters += 1 
-            _logger.warning(f"All labels 0 during training iteration {i+1}")  
+            _logger.warning(f"All labels 0 during training iteration {i+1}")
+            _logger.debug(f"{np.count_nonzero(returns)} non-zero returns, where maximum return: {np.max(returns):.4f}")  
         else:
             consecutive_iters = 0
         
-        if consecutive_iters > 10:
+        if consecutive_iters > 6:
             _logger.critical(f"[iter: {i}] {consecutive_iters} consecutive iters with 0-labels. Aborting!")
             break
 
+        
         #---------- Train GAN ------------------
+        gan.reset_weights() #For the absolute lols
         gan.train(goals, labels, gan_iter_count, global_step=i + 1)
 
         #---------- Update Replay --------------
@@ -378,7 +394,7 @@ def train(
 
         utils.display_agent_and_goals(
             env.agent_pos, goals.detach().cpu().numpy(), returns, env.limits,
-            rmin, rmax, filepath=f"images/goals_iter_{i}.png",
+            rmin, rmax, filepath=f"images/goals_iter_{i}.svg",
             pos_label="Agent position", title=f"Iteration {i}"
         )
         _logger.info(f"Displayed agent and goals")

@@ -9,7 +9,6 @@ import pathlib
 from dataclasses import dataclass
 
 
-
 import numpy.typing as npt
 from os import PathLike
 from typing import Union, Optional
@@ -48,6 +47,12 @@ class GANConfig:
     opt_alpha: float = 0.99
     opt_momentum: float = 1e-3
 
+    def __str__(self) -> str:
+        '''Prints a simple table of the configs values'''
+        header = f"{'input-size':^10s}|{'hidden-size':^11s}|{'output-size':^11s}|{'layer-count':^11s}|{'opt-lr':^6s}|{'opt-alpha':^9s}|{'opt-momentum':^12s}"
+        delim = f"{10*'-'}|{11*'-'}|{11*'-'}|{11*'-'}|{6*'-'}|{9*'-'}|{12*'-'}"
+        values = f"{self.input_size:^10d}|{self.hidden_size:^11d}|{self.output_size:^11d}|{self.layer_count:^11d}|{self.opt_lr:^6.4f}|{self.opt_alpha:^9.6f}|{self.opt_momentum:^12.6f}"
+        return f"{header}\n{delim}\n{values}"
 
 
 
@@ -137,10 +142,8 @@ class LSGAN:
         self._discriminator_losses = []
         self._generator_losses = []
 
-
         #Apply Xavier uniform weight initialization
-        self._generator.apply(init_weights)
-        self._discriminator.apply(init_weights)
+        self.reset_weights()
 
     def close(self) -> None:
         ''' 
@@ -172,6 +175,11 @@ class LSGAN:
             The input dimension of the generator
         '''
         return self._generator_input_size
+
+    @property
+    def device(self) -> torch.device:
+        '''Returns the device the network is currently in'''
+        return self._device
 
     def generate_goals(self, z: torch.Tensor) -> torch.Tensor:
         '''
@@ -220,6 +228,8 @@ class LSGAN:
             "g_optimizer_state": self._generator_optimizer.state_dict(),
             "d_optimizer_state": self._discriminator_optimizer.state_dict(),
             "generator_input_size": self._generator_input_size,
+            "generator_losses": self._generator_losses,
+            "discriminator_losses": self._discriminator_losses,
             "a": self._a,
             "b": self._b,
             "c": self._c
@@ -274,6 +284,9 @@ class LSGAN:
         self._a = state["a"]
         self._b = state["b"]
         self._c = state["c"]
+
+        self._generator_losses = state["generator_losses"]
+        self._discriminator_losses = state["discriminator_losses"]
 
         if eval:
             self._generator.eval()
@@ -345,12 +358,12 @@ class LSGAN:
         
         fig_gloss = utils.line_plot(
             x, gloss, close_fig=False, title=f"Generator loss {global_step}", 
-            ylabel="Loss", xlabel="Iteration", figsize=(25, 10)
+            ylabel="Loss", xlabel="Iteration", figsize=(25, 10), grid=True
         )
 
         fig_dloss = utils.line_plot(
             x, dloss, close_fig=False, title=f"Discriminator loss {global_step}", 
-            ylabel="Loss", xlabel="Iteration", figsize=(25, 10)
+            ylabel="Loss", xlabel="Iteration", figsize=(25, 10), grid=True
         )
 
         self._writer.add_figure("loss/generator", fig_gloss, global_step=global_step)
@@ -387,7 +400,7 @@ class LSGAN:
 
         for i in range(n_iter):
             
-            #--------Update the Discriminator-----------
+            #--------- Update the Discriminator -----------
 
             #The size of the noise must be same as the input size of the generator
             zs = torch.randn(len(labels), self._generator_input_size).to(self._device)          
@@ -396,8 +409,7 @@ class LSGAN:
             discriminator_loss.backward()
             self._discriminator_optimizer.step()
             
-            #---------Update the Generator-------------
-   
+            #--------- Update the Generator ---------------
             zs = torch.randn(len(labels), self._generator_input_size).to(self._device)
             self._generator.zero_grad()
 
@@ -405,8 +417,7 @@ class LSGAN:
             generator_loss.backward()
             self._generator_optimizer.step()
             
-            #--------Save loss data for logging purposes----------------
-
+            #--------- Save loss data ----------------------
             self._discriminator_losses.append(discriminator_loss.item())
             dloss[i] = discriminator_loss.item() 
 

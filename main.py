@@ -20,7 +20,7 @@ _ENV_NAME: str = "AntUMaze-v1"
 _GOAL_SIZE: int = 2
 
 _logger = utils.get_logger(__name__)
-
+_writer = utils.get_writer()
 
 def _create(env: str, generator_config: GANConfig, discriminator_config: GANConfig, ddpg_config: DDPGConfig, device: torch.device) -> Tuple[MazeEnv, DDPGAgent, LSGAN]:
     '''
@@ -89,20 +89,28 @@ def _parse_and_train(args: argparse.Namespace) -> None:
     _logger.info(f"Using device: {utils.get_device_repr(device)}")
 
     #Create configurations for generator and discriminator, with the specified hyperparameters.
+
+
+    
+
     generator_config = GANConfig(
-        hidden_size=args.gen_hidden_size, layer_count=args.gen_layer_count,
+        hidden_size=args.gen_hidden_size, layer_count=args.gen_nlayers,
         opt_lr=args.gen_lr, opt_alpha=args.gen_alpha, opt_momentum=args.gen_momentum
     )
+    _writer.add_text("GAN/generator", f"{generator_config}")
+
     discriminator_config = GANConfig(
-        hidden_size=args.disc_hidden_size, layer_count=args.disc_layer_count,
+        hidden_size=args.disc_hidden_size, layer_count=args.disc_nlayers,
         opt_lr=args.disc_lr, opt_alpha=args.disc_alpha, opt_momentum=args.disc_momentum
     )
+    _writer.add_text("GAN/discriminator", f"{discriminator_config}")
 
     #Create configuration for the DDPG Agent with specified hyperparameters.
     ddpg_config = DDPGConfig(
         actor_lr=args.actor_lr, critic_lr=args.critic_lr, weight_decay=args.weight_decay,
         tau=args.tau, gamma=args.gamma, buffer_size=args.buffer_size, batch_size=args.batch_size
     )
+    _writer.add_text("Agent/DDPG", f"{ddpg_config}")
 
     env, agent, lsgan = _create(args.env, generator_config, discriminator_config, ddpg_config, device)
 
@@ -113,6 +121,12 @@ def _parse_and_train(args: argparse.Namespace) -> None:
         agent.load_model(args.agent_checkpoint)
         _logger.info("Loaded DDPG agent")
     
+
+    header = f"{'iter-count':^10s}|{'gan-iter-count':^14s}|{'policy-iter-count':^17s}|{'timestep-count':^14s}|{'goal-count':10s}|{'rmin':^8s}|{'rmax':^8s}"
+    delim = f"{10*'-'}|{14*'-'}|{17*'-'}|{14*'-'}|{10*'-'}|{8*'-'}|{8*'-'}"
+    values = f"{args.train_iter_count:^10d}|{args.gan_iter_count:^14d}|{args.policy_iter_count:^17d}|{args.timestep_count:^14d}|{args.goal_count:^10d}|{args.rmin:^8.4f}|{args.rmax:^8.4f}"
+    _writer.add_text("train/hyperparams", f"{header}\n{delim}\n{values}")
+
     if args.save_after is None:
         train(
             lsgan, agent, env, args.gan_iter_count, args.policy_iter_count,

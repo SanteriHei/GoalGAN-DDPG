@@ -63,6 +63,12 @@ class DDPGConfig:
     buffer_size: int = int(1e5)
     batch_size: int = 128
 
+    def __str__(self) -> str:
+        '''Returns a simple table presentation of the config values'''
+        header = f"{'action-size':^11s}|{'state-size':^10s}|{'actor-lr':^8s}|{'critic-lr':^9s}|{'weight-decay':^12s}|{'tau':^7s}|{'gamma':^9s}|{'buffer-size':^11s}|{'batch-size':^10s}"
+        delim = f"{11*'-'}|{10*'-'}|{8*'-'}|{9*'-'}|{12*'-'}|{7*'-'}|{9*'-'}|{11*'-'}|{10*'-'}"
+        values = f"{self.action_size:^11d}|{self.state_size:^10d}|{self.actor_lr:^8.4f}|{self.critic_lr:^9.4f}|{self.weight_decay:^12.6f}|{self.tau:^7.5f}|{self.gamma:^9.4f}|{self.buffer_size:^11d}|{self.batch_size:^10d}"
+        return f"{header}\n{delim}\n{values}"
 
 class DDPGAgent:    
     '''
@@ -166,7 +172,6 @@ class DDPGAgent:
         self._buffer.append(exp)
 
         if len(self._buffer) > self._buffer.batch_size:
-            self._logger.debug("Updating the DDPG agent")
             experiences = self._buffer.sample()
             self.learn(experiences)
 
@@ -227,12 +232,12 @@ class DDPGAgent:
 
         fig_actor_loss = utils.line_plot(
             x, actor_loss, title=f"Actor loss {global_step}", 
-            xlabel="iterations", ylabel="loss", figsize=(20, 10)
+            xlabel="iterations", ylabel="loss", figsize=(20, 10), grid=True
         )
 
         fig_critic_loss = utils.line_plot(
             x, critic_loss, title=f"Critic loss {global_step}", 
-            xlabel="iterations", ylabel="loss", figsize=(20, 10)
+            xlabel="iterations", ylabel="loss", figsize=(20, 10), grid=True
         )
 
         self._writer.add_figure("loss/actor", fig_actor_loss, global_step=global_step)
