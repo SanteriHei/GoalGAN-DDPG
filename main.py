@@ -11,7 +11,7 @@ from models.gan import LSGAN, GANConfig
 from models.agent import DDPGAgent, DDPGConfig
 from environment.mujoco_env import MazeEnv
 from train import train
-from eval import eval_gan
+from eval import eval_policy
 
 from typing import Tuple
 
@@ -51,8 +51,8 @@ def _create(env: str, generator_config: GANConfig, discriminator_config: GANConf
     env = MazeEnv(args.env, _GOAL_SIZE)
 
     #Define the state and action sizes.
-    ddpg_config.state_size = env.observation_space.shape
-    ddpg_config.action_size = env.action_space.shape
+    ddpg_config.state_size = env.observation_space.shape[0]
+    ddpg_config.action_size = env.action_space.shape[0]
 
     #Create agent for the enviroment
     agent = DDPGAgent(ddpg_config, device)
@@ -89,10 +89,6 @@ def _parse_and_train(args: argparse.Namespace) -> None:
     _logger.info(f"Using device: {utils.get_device_repr(device)}")
 
     #Create configurations for generator and discriminator, with the specified hyperparameters.
-
-
-    
-
     generator_config = GANConfig(
         hidden_size=args.gen_hidden_size, layer_count=args.gen_nlayers,
         opt_lr=args.gen_lr, opt_alpha=args.gen_alpha, opt_momentum=args.gen_momentum
@@ -110,9 +106,9 @@ def _parse_and_train(args: argparse.Namespace) -> None:
         actor_lr=args.actor_lr, critic_lr=args.critic_lr, weight_decay=args.weight_decay,
         tau=args.tau, gamma=args.gamma, buffer_size=args.buffer_size, batch_size=args.batch_size
     )
-    _writer.add_text("Agent/DDPG", f"{ddpg_config}")
-
+   
     env, agent, lsgan = _create(args.env, generator_config, discriminator_config, ddpg_config, device)
+    _writer.add_text("Agent/DDPG", f"{ddpg_config}")
 
     #If the checkpoints where specified, load the models.
     if args.use_checkpoint:
@@ -153,28 +149,31 @@ def _parse_and_eval(args: argparse.Namespace) -> None:
     args: argparse.Namespace
         A namespace object containing all the options passed to the CLI.
     '''
+
     device = utils.get_device()
     _logger.info(f"Using device: {utils.get_device_repr(device)}")
 
-    #Create default configurations, as the model's will be loaded from the disc.
-    generator_config = GANConfig()
-    discriminator_config = GANConfig() 
-    
     #Create configuration for the DDPG Agent with specified hyperparameters.
     ddpg_config = DDPGConfig(
         actor_lr=args.actor_lr, critic_lr=args.critic_lr, weight_decay=args.weight_decay,
         tau=args.tau, gamma=args.gamma, buffer_size=args.buffer_size, batch_size=args.batch_size
     )
 
-    env, agent, lsgan = _create(args.env, generator_config, discriminator_config, ddpg_config, device)
+    #Create the environment
+    env = MazeEnv(args.env, _GOAL_SIZE)
 
-    lsgan.load_model(args.gan_checkpoint, eval=True) #Set the model to evaluation mode
-    _logger.info("Loaded GAN")
+    #Define the state and action sizes.
+    ddpg_config.state_size = env.observation_space.shape[0]
+    ddpg_config.action_size = env.action_space.shape[0]
 
-    eval_gan(
-        lsgan, agent, env, args.iter_count, args.episode_count, args.timestep_count,
-        args.goal_count, args.figure_save_path, args.data_save_path
-    )
+    #Create agent for the enviroment
+    agent = DDPGAgent(ddpg_config, device)
+
+    #Load the saved model
+    agent.load_model(args.agent_model)
+
+    _logger.info("Loaded Agent")
+    eval_policy(agent, env, args.eval_iter_count, args.episode_count, args.timestep_count, render=args.render)
     _logger.info("Exiting")
     env.close()
 
@@ -281,34 +280,29 @@ def get_parser() -> ArgumentParser:
     
 
     # ----------------- CLI for evaluating the network ---------------------------------
-    eval_parser = sub_parsers.add_parser("eval", description="Evaluate the Goal Gan")
-    eval_parser.add_argument("gan-checkpoint",                       type=str,                    help=("Path to file containing"
-                                                                                                        " the Goal GAN model to evaluate"))
-    eval_parser.add_argument("--env",                                type=str, default=_ENV_NAME, help=("The identifier of the "
-                                                                                                        "used enviroment. Default %(default)s"))
-
-    # <<<<< Iteration counts for the evaluations >>>>>
-    eval_parser.add_argument("--iter-count",     type=int, default=500, help=("The amount of outer iterations done will training"
-                                                                             " the Agent. Default %(default)s"))
-    eval_parser.add_argument("--timestep-count", type=int, default=500, help=("The amount of timesteps allowed in each episode."
-                                                                             " Default %(default)s"))
-    eval_parser.add_argument("--episode-count",  type=int, default=10,  help=("The amount of episodes done on each set of goals."
-                                                                             " Default %(default)s"))
-    eval_parser.add_argument("--goal-count",     type=int, default=10,  help=("The amount of goals generated by the GAN during each"
-                                                                             " iteration. Default %(default)s"))
+    eval_parser = sub_parsers.add_parser("eval", description=("Evaluate the trained Agent. NOTE: The same hyperparameters that"
+                                                             " were used during the training of the model must be specified also here."))
     
-    # <<<<< Path where data & figures will be saved >>>>>
-    eval_parser.add_argument("--data-save-path",   type=str, default=None, help=("Path to file, where the generated data will be stored to."
-                                                                                " If not specified, the data won't be saved"))
-    eval_parser.add_argument("--figure-save-path", type=str, default=None, help=("path to directory, where the created figures "
-                                                                                "will be saved to. If not specified, the figures won't be created.")
-                            )
+    eval_parser.add_argument("model_path",        type=str,  metavar="model-path", help=("Path to file containing the"
+                                                                                        " agent model to be evaluated"))
+    eval_parser.add_argument("--env",             type=str,  default=_ENV_NAME,    help=("The identifier of the used"
+                                                                                        " environment. Default %(default)s"))
+    eval_parser.add_argument("--eval-iter-count", type=int,  default=5,            help=("The amount of iterations the"
+                                                                                        " agent is evaluated for. Default %(default)s"))
+    eval_parser.add_argument("--timestep-count",  type=int,  default=500,          help=("The maximum amount timesteps the agent has to"
+                                                                                        " find reach the goal during each episode. Default %(default)s"))
+    eval_parser.add_argument("--episode-count",   type=int,  default=10,           help=("The amount of episodes each evaluation iteration"
+                                                                                        " contains. Default %(default)s"))
+    eval_parser.add_argument("--render",          type=bool, default=False,        help=("If set to true, the environment will be rendered on-screen"
+                                                                                        " during each iteration. Default %(default)s"))
+
     # <<<<< DDPG Hyperparameters >>>>>
     eval_ddpg_hp_group = eval_parser.add_argument_group("DDPG hyperparameters")
     _add_ddpg_hyperparameters(eval_ddpg_hp_group)
     
     eval_parser.set_defaults(func=_parse_and_eval)
 
+    # <<<<< If no command is given, print the help of the parser >>>>>>>
     parser.set_defaults(func=lambda args: args.parser.print_help(), parser=parser)
     return parser
 

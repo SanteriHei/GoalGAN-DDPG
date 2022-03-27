@@ -48,7 +48,7 @@ class GANConfig:
     opt_momentum: float = 1e-3
 
     def __str__(self) -> str:
-        '''Prints a simple table of the configs values'''
+        '''Returns a simple table presentation of the configs values'''
         header = f"{'input-size':^10s}|{'hidden-size':^11s}|{'output-size':^11s}|{'layer-count':^11s}|{'opt-lr':^6s}|{'opt-alpha':^9s}|{'opt-momentum':^12s}"
         delim = f"{10*'-'}|{11*'-'}|{11*'-'}|{11*'-'}|{6*'-'}|{9*'-'}|{12*'-'}"
         values = f"{self.input_size:^10d}|{self.hidden_size:^11d}|{self.output_size:^11d}|{self.layer_count:^11d}|{self.opt_lr:^6.4f}|{self.opt_alpha:^9.6f}|{self.opt_momentum:^12.6f}"

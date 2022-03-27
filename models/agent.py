@@ -31,10 +31,10 @@ class DDPGConfig:
 
     Attributes
     ----------
-    action_size: int | Tuple[int]
+    action_size: int
         Defines the size of each action. The action MUST have 1-dimensional size, 
         i.e. the tuple defining it's size has only 1 element.
-    state_size: int | Tuple[int]
+    state_size: int 
         Defines the size of each state. The state MUST have 1-dimensional size,
         i.e. the tuple defining it's size has only 1 element.
     actor_lr: float, Optional
@@ -53,8 +53,8 @@ class DDPGConfig:
     batch_size: int, Optional
         The size of the sampled batch from the memory buffer. Default 128
     '''
-    action_size: Union[int, Tuple[int]] = _NOT_SET
-    state_size: Union[int, Tuple[int]] = _NOT_SET
+    action_size: int = _NOT_SET
+    state_size: int = _NOT_SET
     actor_lr: float = 1e-4
     critic_lr: float = 1e-4
     weight_decay: float = 0.0
