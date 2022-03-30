@@ -117,11 +117,11 @@ def _parse_and_train(args: argparse.Namespace) -> None:
         agent.load_model(args.agent_checkpoint)
         _logger.info("Loaded DDPG agent")
     
-
-    header = f"{'iter-count':^10s}|{'gan-iter-count':^14s}|{'policy-iter-count':^17s}|{'timestep-count':^14s}|{'goal-count':10s}|{'rmin':^8s}|{'rmax':^8s}"
-    delim = f"{10*'-'}|{14*'-'}|{17*'-'}|{14*'-'}|{10*'-'}|{8*'-'}|{8*'-'}"
-    values = f"{args.train_iter_count:^10d}|{args.gan_iter_count:^14d}|{args.policy_iter_count:^17d}|{args.timestep_count:^14d}|{args.goal_count:^10d}|{args.rmin:^8.4f}|{args.rmax:^8.4f}"
+    header = f"{'iter-count':^10s}|{'gan-iter-count':^14s}|{'policy-iter-count':^17s}|{'episode-count':^13s}|{'timestep-count':^14s}|{'goal-count':10s}|{'rmin':^8s}|{'rmax':^8s}"
+    delim = f"{10*'-'}|{14*'-'}|{17*'-'}|{13*'-'}|{14*'-'}|{10*'-'}|{8*'-'}|{8*'-'}"
+    values = f"{args.train_iter_count:^10d}|{args.gan_iter_count:^14d}|{args.policy_iter_count:^17d}|{args.episode_count:^13d}|{args.timestep_count:^14d}|{args.goal_count:^10d}|{args.rmin:^8.4f}|{args.rmax:^8.4f}"
     _writer.add_text("train/hyperparams", f"{header}\n{delim}\n{values}")
+
 
     if args.save_after is None:
         train(
@@ -170,7 +170,7 @@ def _parse_and_eval(args: argparse.Namespace) -> None:
     agent = DDPGAgent(ddpg_config, device)
 
     #Load the saved model
-    agent.load_model(args.agent_model)
+    agent.load_model(args.model_path)
 
     _logger.info("Loaded Agent")
     eval_policy(agent, env, args.eval_iter_count, args.episode_count, args.timestep_count, render=args.render)
@@ -293,7 +293,7 @@ def get_parser() -> ArgumentParser:
                                                                                         " find reach the goal during each episode. Default %(default)s"))
     eval_parser.add_argument("--episode-count",   type=int,  default=10,           help=("The amount of episodes each evaluation iteration"
                                                                                         " contains. Default %(default)s"))
-    eval_parser.add_argument("--render",          type=bool, default=False,        help=("If set to true, the environment will be rendered on-screen"
+    eval_parser.add_argument("--render",          action="store_true",             help=("If set to true, the environment will be rendered on-screen"
                                                                                         " during each iteration. Default %(default)s"))
 
     # <<<<< DDPG Hyperparameters >>>>>

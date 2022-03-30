@@ -15,98 +15,96 @@ import numpy.typing as npt
 #Note: The implementation presented here is HEAVILY "inspired" 
 #by this repo: https://github.com/xkiwilabs/DDPG-using-PyTorch-and-ML-Agents
 
-Experience = namedtuple("Experience", ["state", "action", "reward", "next_state", "done"])
 
-class MemoryBuffer:
+class ReplayBuffer:
+
     '''
-    Creates a MemoryBuffer to be used as the experience replay in DDPG
+    Simple replay buffer implementation for DDPG agents
 
-    Attributes
-    ----------
-    _buffer: deque
-        A deque, used as the memory buffer.
-    
     Parameters
     ----------
     action_size: int
-        The size of the action space
+        The size of an action.
+    state_size: int
+        The size of a state.
     buffer_size: int
-        The maximum size of the memory buffer
+        The maximum size of this buffer.
     batch_size: int
-        The amount of samples to return when sampling the memory
+        The size of a batch sampled from this buffer
     device: torch.device
-        The device, where the tensors should be moved to.
-
+        The device where the sampled tensors should be located in.
     '''
-    
-    def __init__(self, action_size: int, buffer_size: int, batch_size: int, device: torch.device) -> None:
-        self._action_size: int = action_size
-        self._buffer: Deque[Experience] = deque(maxlen=buffer_size)
+    def __init__(self, action_size: int, state_size: int, buffer_size: int, batch_size: int, device: torch.device) -> None:
+        
+        # ------ Housekeeping items --------------
+        self._len: int = 0
+        self._ptr: int = 0
+        self._buffer_size: int = buffer_size
         self._batch_size: int = batch_size
-        self._device: torch.device = device
+        self._rng: np.random.Generator = np.random.default_rng()
+        self._device = device
+
+        # ----------- Buffers --------------------
+        self._state_buffer: npt.NDArray = np.zeros((buffer_size, state_size), dtype=np.float32)
+        self._action_buffer: npt.NDArray = np.zeros((buffer_size, action_size), dtype=np.float32)
+        self._reward_buffer: npt.NDArray =  np.zeros((buffer_size,), dtype=np.float32)
+        self._done_buffer: npt.NDArray = np.zeros((buffer_size), dtype=np.float32)
+        self._next_state_buffer: npt.NDArray = np.zeros((buffer_size, state_size), dtype=np.float32)
 
     @property
     def batch_size(self) -> int:
         '''Returns the batch size of the buffer'''
         return self._batch_size
 
-    def append(self, experience: Experience) -> None:
-        '''
-        Adds new experince to the buffer
 
-        Parameters
-        ----------
-        experience: Experience
-            The experience to add. Contains the current state, action, reward, the next state, and information
-            if the task is done
-         
-        Returns
-        -------
-            None    
+    def append(self,  state: npt.NDArray, action: npt.NDArray, reward: float, done: bool,next_state: npt.NDArray) -> None:
         '''
-        self._buffer.append(experience) 
+        state: npt.NDArray
+            The state where the action was taken from.
+        action: npt.NDArray
+            The taken action.
+        reward: float
+            The received reward after the action was taken.
+        done: bool
+            The status of the task after the action was taken.
+        next_state: npt.NDArray
+            The state that was reached by taking the action.
+        '''
+        self._state_buffer[self._ptr] = state
+        self._action_buffer[self._ptr] = action 
+        self._reward_buffer[self._ptr] = reward
+        self._done_buffer[self._ptr] = float(done)
+        self._next_state_buffer[self._ptr] = next_state
+        
+        self._ptr = (self._ptr + 1) % self._buffer_size
+        self._len = min(self._len + 1, self._buffer_size)
+
 
     def sample(self) -> Tuple[torch.Tensor, torch.Tensor, torch.Tensor, torch.Tensor, torch.Tensor]:
         '''
-        Sample the experience relay/Memory buffer
+        Samples the buffer to create batch size samples.
 
         Returns
         -------
-        Tuple[torch.Tensor]
-            Returns a tuple of states, actions, rewards, next_states and dones from the 
-            experience replay, where each value is a tensor with shape (batch_size, )
+        Tuple[torch.Tensor, torch.Tensor, torch.Tensor, torch.Tensor, torch.Tensor, torch.Tensor]
+            Returns a tuple of states, actions, rewards, dones and next states from the buffer,
+            that are located on the device specified in the constructor.
         '''
-        experiences = random.sample(self._buffer, k=self._batch_size)
-        action_size = experiences[0].action.shape[0]
-        state_size = experiences[0].state.shape[0]
+        idxs = self._rng.integers(0, self._len, size=self._batch_size)      
+
+        states = torch.from_numpy(self._state_buffer[idxs]).float().to(self._device)
+        actions = torch.from_numpy(self._action_buffer[idxs]).float().to(self._device)  
+        rewards = torch.from_numpy(self._reward_buffer[idxs]).float().to(self._device)
+        dones = torch.from_numpy(self._done_buffer[idxs]).float().to(self._device)
+        next_states = torch.from_numpy(self._next_state_buffer[idxs]).float().to(self._device)
+
+        return states, actions, rewards, dones, next_states
 
 
-        #Create memory for the samples
-        states = torch.zeros(self._batch_size, state_size)
-        actions = torch.zeros(self._batch_size, action_size)
-        rewards = torch.zeros(self._batch_size)
-        next_states = torch.zeros(self._batch_size, state_size)
-        dones = torch.zeros(self._batch_size)
-        
-        for i,e in enumerate(experiences):
-            states[i] = torch.from_numpy(e.state)
-            actions[i] = torch.from_numpy(e.action)
-            rewards[i] = e.reward
-            next_states[i] = torch.from_numpy(e.next_state)
-            dones[i] = int(e.done)
-
-        states = states.float().to(self._device)
-        actions = actions.float().to(self._device)
-        rewards = rewards.float().to(self._device)
-        next_states = next_states.float().to(self._device)
-        dones = dones.float().to(self._device)
-        return states, actions, rewards, next_states, dones
-    
     def __len__(self) -> int:
-        '''
-        Returns the current length of the buffer
-        '''
-        return len(self._buffer)
+        '''Returns the current lenght of the buffer'''
+        return self._len
+
 
 
 def _hidden_init(layer: nn.Module) -> Tuple[float, float]:

@@ -1,5 +1,5 @@
 
-from models.rl import Actor, Critic, OUNoise, MemoryBuffer, Experience
+from models.rl import Actor, Critic, OUNoise, ReplayBuffer
 
 import utils
 
@@ -112,9 +112,13 @@ class DDPGAgent:
             lr=config.critic_lr, weight_decay=config.weight_decay
         )
 
-        self._noise = OUNoise((1, self._action_size), seed=None)
-        self._buffer = MemoryBuffer(self._action_size, config.buffer_size, config.batch_size, self._device)
-        
+        self._noise = OUNoise((self._action_size,), seed=None)
+        #self._buffer = MemoryBuffer(self._action_size, config.buffer_size, config.batch_size, self._device)
+        self._buffer = ReplayBuffer(
+            self._action_size, self._state_size, config.buffer_size,
+            config.batch_size, self._device
+        )
+
         self._gamma: float = config.gamma
         self._tau: float = config.tau
 
@@ -168,15 +172,15 @@ class DDPGAgent:
         done: bool 
             Was the task completed.
         '''
-        exp = Experience(state=state, action=action, reward=reward, next_state=next_state, done=done)
-        self._buffer.append(exp)
-
-        if len(self._buffer) > self._buffer.batch_size:
-            experiences = self._buffer.sample()
-            self.learn(experiences)
+        self._buffer.append(state, action, reward, done, next_state)
 
 
-    def act(self, state: npt.NDArray, use_noise: bool = True, range: Tuple[float, float] = (0.0, 1.0)) -> npt.NDArray:
+        ##if len(self._buffer) > self._buffer.batch_size:
+        ##    experiences = self._buffer.sample()
+        ##    self.learn(experiences)
+
+
+    def act(self, state: npt.NDArray, use_noise: bool = True, vrange: Tuple[float, float] = (0.0, 1.0)) -> npt.NDArray:
         '''
         Uses the current policy to create actions for the given state
 
@@ -187,7 +191,7 @@ class DDPGAgent:
         use_noise: bool, Optional
             Controls if additional noise is added to the 
             generated actions. Default True.
-        range: Tuple[int, int], Optional
+        vrange: Tuple[int, int], Optional
             Defines the range, where the values should be clipped to.
         Returns
         -------
@@ -197,21 +201,21 @@ class DDPGAgent:
         '''
 
         state = torch.from_numpy(state).float().to(self._device)
-        acts = torch.zeros((1, self._action_size)).float().to(self._device)
+        
 
         #Evaluation mode for the local actor
         self._actor_local.eval()
         with torch.no_grad():
-            acts[:] = self._actor_local.forward(state)
-        
+            action = self._actor_local.forward(state)
         self._actor_local.train()
-        
-        if use_noise:
-            acts += torch.from_numpy(self._noise.sample()).to(self._device)
-        
+
         #Convert action back to numpy array
-        cpu_action = acts.detach().cpu().numpy()
-        return np.clip(cpu_action, *range).squeeze()
+        cpu_action = action.detach().cpu().numpy()
+
+        if use_noise:
+            cpu_action += self._noise.sample()
+
+        return np.clip(cpu_action, *vrange).squeeze()
 
 
     def log_losses_and_reset(self, global_step: Optional[int] = None) -> None:
@@ -355,21 +359,16 @@ class DDPGAgent:
             self._critic_local.train()
             self._critic_target.train()
 
-    def learn(self, experiences: Tuple[torch.Tensor,torch.Tensor, torch.Tensor, torch.Tensor, torch.Tensor]) -> None:
+    def learn(self) -> None:
         '''
         Updates the policy, and value parameters, using the given experiences. The used formula
         Qtargets = r + y * Q-value,
         where actor-target-network produces actions from the states, and critic-target network
         calculates the Q-values from (state, action) pairs.    
-
-        Parameters
-        ----------
-        experiences: Tuple[torch.Tensor, torch.Tensor, torch.Tensor, torch.Tensor, torch.Tensor]
-            A tuple of tensors, that contain states, actions, rewards, next states, and information about if the
-            task was completed at that point.
         '''
-        states, actions, rewards, next_states, dones = experiences
-        
+
+        states, actions, rewards, dones, next_states = self._buffer.sample()
+                
 
         # --------------- Update the critic networks ------------------
         next_actions = self._actor_target(next_states) #(batch_size, action_size)
@@ -420,7 +419,10 @@ class DDPGAgent:
             A control parameter, that is used as interpolation value.
 
         '''
-        for t_param, l_param in zip(target_network.parameters(), local_network.parameters()):
-            t_param.data.copy_(tau * l_param.data + (1.0 - tau) * t_param.data)
+        for target_param, param in zip(target_network.parameters(), local_network.parameters()):
+            target_param.data.mul_((1.0-tau))
+            target_param.data.add_(tau* param.data)
+
+            #target_param.data.copy_(tau * param.data + (1.0 - tau) * target_param.data)
 
     

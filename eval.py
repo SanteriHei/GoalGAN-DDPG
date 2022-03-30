@@ -1,10 +1,6 @@
 from models.agent import DDPGAgent
 from environment.mujoco_env import MazeEnv
-import utils
 import numpy as np
-
-_logger = utils.get_logger(__name__)
-
 
 
 def eval_policy(agent: DDPGAgent, env: MazeEnv, eval_iter: int, episode_count: int, timestep_count: int, render: bool = False) -> None:
@@ -33,10 +29,13 @@ def eval_policy(agent: DDPGAgent, env: MazeEnv, eval_iter: int, episode_count: i
     delim = f"{16*'-'}|{16*'-'}|{16*'-'}|{16*'-'}|{16*'-'}"
     values = "{:^16d}|{:^16d}|{:^16d}|{:^16.2f}%|{:^16.2f}"
 
-    _logger.info(f"{header}\n{delim}")
+    print(f"{header}\n{delim}")
 
     goals_reached = np.zeros(episode_count, dtype=np.int32)
     ts_counts = np.zeros(episode_count)
+
+    env.eval = True
+    env.goals = []
 
     for i in range(eval_iter):
         #Reset stats
@@ -45,8 +44,8 @@ def eval_policy(agent: DDPGAgent, env: MazeEnv, eval_iter: int, episode_count: i
         
         for ep in range(episode_count):
             state = env.reset()
-            for ts in (timestep_count):
-                action = agent.act(state)
+            for ts in range(timestep_count):
+                action = agent.act(state, use_noise=False)
                 *_, done = env.step(action)
                 if render:
                     env.render()
@@ -56,8 +55,8 @@ def eval_policy(agent: DDPGAgent, env: MazeEnv, eval_iter: int, episode_count: i
                     break
         reached_count = np.count_nonzero(goals_reached)
         reached_idx = np.nonzero(goals_reached)
-        _logger.info(values.format(i, episode_count, reached_count, float(reached_count/episode_count)*100,   np.mean(ts_counts[reached_idx])))
-    _logger.info("Evaluation done!")
+        print(values.format(i, episode_count, reached_count, float(reached_count/episode_count)*100,   np.mean(ts_counts[reached_idx])))
+    print("Evaluation done!")
 
 
 

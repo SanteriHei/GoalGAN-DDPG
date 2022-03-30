@@ -1,3 +1,5 @@
+from tracemalloc import start
+from turtle import update
 import torch
 import numpy as np
 import pathlib
@@ -91,22 +93,33 @@ def _update_or_eval_policy(
     '''
 
     tag = "update" if not eval_mode else "eval"
+    
+    r = (env.action_space.low.min(), env.action_space.high.max())
     rewards = np.zeros((policy_iter_count*episode_count, ))
     env.eval = eval_mode
+    start_steps, update_after, update_every = 1000, 2000, 20
     
-    for i in range(policy_iter_count):
+    total_steps = 0
+    for p in range(policy_iter_count):
         for ep in range(episode_count):
             state = env.reset()
             for ts in range(timestep_count):
-                action = agent.act(state)
+                #When eval mode is true, use noise is set to false.     
+                action = env.action_space.sample() if not eval_mode and ts*(ep+1) < start_steps else  agent.act(state, use_noise=not eval_mode, vrange=r)
+            
+                #action = agent.act(state, use_noise=not eval_mode)
                 next_state, reward, done = env.step(action)
                 
                 if not eval_mode:
                     agent.step(state, action, reward, next_state, done)
+                    
+                if not eval_mode and total_steps >= update_after:
+                    agent.learn()
 
-                rewards[i*ep] = reward
+                rewards[p*episode_count + ep] = reward
+                total_steps += 1
                 if done:
-                    _logger.info(f"(iter: {i}, Episode: {ep}): Goal found in {ts} timesteps")
+                    _logger.info(f"(Policy iter: {p}, Episode: {ep}): Goal found in {ts} timesteps")
                     break
     avg_reward = rewards.mean()
    
@@ -120,6 +133,22 @@ def _update_or_eval_policy(
         return np.clip(env.achieved_goals_counts/(policy_iter_count*episode_count), 0,1)
 
 
+
+def test_update(agent: DDPGAgent, env: MazeEnv, goals: Sequence[npt.NDArray], episode_count: int, timestep_count: int) -> npt.NDArray:
+    
+    r = (env.action_space.low.min(), env.action_space.high.max())
+    returns = np.zeros(goals.shape)
+    for i in range(goals.shape[0]):
+        env.goals = [goals[i]]
+        for ep in range(episode_count):
+            state = env.reset()
+            for ts in range(timestep_count):
+                action = agent.act(state, use_noise=False, vrange=r)
+                next_state, reward, done = env.step(action)
+                if done:
+                    break
+        returns[i] = np.clip(env.achieved_goals_counts[0]/(episode_count), 0, 1)    
+    return returns
 
 def _observe_states(agent: DDPGAgent, env: MazeEnv, goals: Sequence[npt.NDArray], episode_count: int, timestep_count: int) -> npt.NDArray:
     '''
@@ -153,13 +182,14 @@ def _observe_states(agent: DDPGAgent, env: MazeEnv, goals: Sequence[npt.NDArray]
         state = env.reset()
         for ts in range(timestep_count):
             action = agent.act(state)
-            *_, done = env.step(action)
+            state, _ , done = env.step(action)
             
-            visited_positions[ep*episode_count + ts, :] = env.agent_pos
+            visited_positions[ep*timestep_count + ts, :] = env.agent_pos
 
             if done:
                 _logger.info(f"Goal found at timestep {ts} during episode {ep}")
-                break            
+                state = env.reset()
+
     return visited_positions
 
 
@@ -224,7 +254,7 @@ def _initialize_gan(
     Returns
     -------
     torch.Tensor:
-        The goals that should be suitable for the agent.
+        The goals that should be suitable for the initial policy.
     '''
 
     rng = np.random.default_rng()
@@ -325,7 +355,7 @@ def train(
 
     #2/3 gan generated goals and 1/3 of random goals. See Florensa et al. pp. 7
     old_goal_count = goal_count // 3
-    gan_goal_count = 2*goal_count // 3
+    gan_goal_count = 2*(goal_count // 3)
     _logger.debug(f"Using {gan_goal_count} GAN generated goals and {old_goal_count} old goals")
     
     #Save the mean value of the returns to plot a "coverage" graph
@@ -342,9 +372,10 @@ def train(
     consecutive_iters = 0
     
     #Use points that are close to the agent as the first set of old goals
-    old_goals = torch.clip(
-        torch.from_numpy(env.agent_pos.astype(np.float32)) + 0.5*torch.normal(0, 1, (old_goal_count, env.goal_size)), *env.limits
-    ).to(gan.device)
+    #old_goals = torch.clip(
+    #    torch.from_numpy(env.agent_pos.astype(np.float32)) + 0.5*torch.normal(0, 1, (old_goal_count, env.goal_size)), *env.limits
+    #).to(gan.device)
+    old_goals = None
 
     for i in range(iter_count):
         _logger.info(f"OUTER ITERATION {i+1}")
@@ -379,7 +410,7 @@ def train(
         else:
             consecutive_iters = 0
         
-        if consecutive_iters > 6:
+        if consecutive_iters > 20:
             _logger.critical(f"[iter: {i}] {consecutive_iters} consecutive iters with 0-labels. Aborting!")
             break
 
@@ -389,9 +420,11 @@ def train(
         gan.train(goals, labels, gan_iter_count, global_step=i + 1)
 
         #---------- Update Replay --------------
-        old_goals = _update_replay(gan_goals, old_goals)
-        
+        #Don't add the randomly selected close by goals to the buffer.
+        old_goals =  _update_replay(gan_goals, None) if i == 0 else _update_replay(gan_goals, old_goals)
+         
 
+        # ---------- Display goals ---------------
         utils.display_agent_and_goals(
             env.agent_pos, goals.detach().cpu().numpy(), returns, env.limits,
             rmin, rmax, filepath=f"images/goals_iter_{i}.svg",
