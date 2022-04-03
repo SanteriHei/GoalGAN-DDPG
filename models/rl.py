@@ -156,14 +156,6 @@ class Actor(nn.Module):
         super(Actor, self).__init__()
 
         self._action_range: int = action_range
-        #self._layers = nn.ModuleList([
-        #    nn.Linear(state_size, fc1_units),
-        #    nn.ReLU(),
-        #    nn.Linear(fc1_units, fc2_units),
-        #    nn.ReLU(),
-        #    nn.Linear(fc2_units, action_size),
-        #    nn.Tanh()
-        #])
 
         self._fc1 = nn.Linear(state_size, fc1_units)
         self._norm1 = nn.LayerNorm(fc1_units) if use_norm else None
