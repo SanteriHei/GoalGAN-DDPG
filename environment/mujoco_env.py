@@ -83,13 +83,19 @@ class MazeEnv:
         return self._env.observation_space
     
     @property
-    def limits(self) -> Tuple[float, float]:
+    def obs_limits(self) -> Tuple[float, float]:
         '''Return the limits of the environment in (low, high) tuple'''
-        low = self.observation_space.low[0]
-        high = self.observation_space.high[0]
+        low = self.observation_space.low.max()
+        high = self.observation_space.high.min()
         return low, high
-
- 
+    
+    @property
+    def action_limits(self) -> Tuple[float, float]:
+        '''Returns the limts of the action space in (low, high) tuple'''
+        low = self.action_space.low.max()
+        high = self.action_space.high.min()
+        return low, high
+    
     @property
     def eval(self) -> bool:
         '''Returns the current evaluation state'''

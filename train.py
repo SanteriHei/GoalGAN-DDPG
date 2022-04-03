@@ -94,20 +94,25 @@ def _update_or_eval_policy(
 
     tag = "update" if not eval_mode else "eval"
     
-    r = (env.action_space.low.min(), env.action_space.high.max())
     rewards = np.zeros((policy_iter_count*episode_count, ))
     env.eval = eval_mode
-    start_steps, update_after, update_every = 1000, 2000, 20
+    start_steps, update_after = 1000, 2000
     
     total_steps = 0
     for p in range(policy_iter_count):
         for ep in range(episode_count):
             state = env.reset()
             for ts in range(timestep_count):
-                #When eval mode is true, use noise is set to false.     
-                action = env.action_space.sample() if not eval_mode and ts*(ep+1) < start_steps else  agent.act(state, use_noise=not eval_mode, vrange=r)
-            
-                #action = agent.act(state, use_noise=not eval_mode)
+                  
+                if not eval_mode and total_steps < start_steps:
+                    action = env.action_space.sample()
+                else:
+                    #When eval mode is true, use noise is set to false and vice versa.   
+                    action = agent.act(state, use_noise=not eval_mode)
+
+                    if ( np.abs(np.max(np.abs(action)) - env.action_limits[1]) < 1e-3 ):
+                        _logger.debug(f"Action min: {np.min(action)}, max: {np.max(action)}")
+
                 next_state, reward, done = env.step(action)
                 
                 if not eval_mode:
@@ -127,28 +132,10 @@ def _update_or_eval_policy(
     _writer.add_scalar(f"reward/{tag}-avg-reward", avg_reward, global_step=global_step)
     if not eval_mode:
         agent.log_losses_and_reset(global_step)
-
-    if eval_mode:
+    else:
         global_rewards[global_step] = avg_reward
         return np.clip(env.achieved_goals_counts/(policy_iter_count*episode_count), 0,1)
 
-
-
-def test_update(agent: DDPGAgent, env: MazeEnv, goals: Sequence[npt.NDArray], episode_count: int, timestep_count: int) -> npt.NDArray:
-    
-    r = (env.action_space.low.min(), env.action_space.high.max())
-    returns = np.zeros(goals.shape)
-    for i in range(goals.shape[0]):
-        env.goals = [goals[i]]
-        for ep in range(episode_count):
-            state = env.reset()
-            for ts in range(timestep_count):
-                action = agent.act(state, use_noise=False, vrange=r)
-                next_state, reward, done = env.step(action)
-                if done:
-                    break
-        returns[i] = np.clip(env.achieved_goals_counts[0]/(episode_count), 0, 1)    
-    return returns
 
 def _observe_states(agent: DDPGAgent, env: MazeEnv, goals: Sequence[npt.NDArray], episode_count: int, timestep_count: int) -> npt.NDArray:
     '''
@@ -259,7 +246,7 @@ def _initialize_gan(
 
     rng = np.random.default_rng()
     #Create the initial goals.
-    goals = rng.uniform(*env.limits, size=(goal_count, env.goal_size))
+    goals = rng.uniform(*env.obs_limits, size=(goal_count, env.goal_size))
     visited_positions = _observe_states(agent, env, goals, episode_count, timestep_count)
     labels = np.ones((max(visited_positions.shape), ))
     gan.train(torch.from_numpy(visited_positions), labels, gan_iter_count, global_step=0)
@@ -372,16 +359,16 @@ def train(
     consecutive_iters = 0
     
     #Use points that are close to the agent as the first set of old goals
-    #old_goals = torch.clip(
-    #    torch.from_numpy(env.agent_pos.astype(np.float32)) + 0.5*torch.normal(0, 1, (old_goal_count, env.goal_size)), *env.limits
-    #).to(gan.device)
-    old_goals = None
+    old_goals = torch.clip(
+        torch.from_numpy(env.agent_pos.astype(np.float32)) + 0.5*torch.normal(0, 1, (old_goal_count, env.goal_size)), *env.obs_limits
+    ).to(gan.device)
+    #old_goals = None
 
     for i in range(iter_count):
         _logger.info(f"OUTER ITERATION {i+1}")
     
         #---------- Create Goals -------------
-        gan_goals = _create_goals(gan,  gan_goal_count, env.limits)
+        gan_goals = _create_goals(gan,  gan_goal_count, env.obs_limits)
         goals = gan_goals if old_goals is None else torch.cat([gan_goals, utils.sample_tensor(old_goals, old_goal_count)])
         
         env.goals = goals.detach().cpu().numpy()
@@ -410,7 +397,7 @@ def train(
         else:
             consecutive_iters = 0
         
-        if consecutive_iters > 20:
+        if consecutive_iters > 10:
             _logger.critical(f"[iter: {i}] {consecutive_iters} consecutive iters with 0-labels. Aborting!")
             break
 
@@ -426,7 +413,7 @@ def train(
 
         # ---------- Display goals ---------------
         utils.display_agent_and_goals(
-            env.agent_pos, goals.detach().cpu().numpy(), returns, env.limits,
+            env.agent_pos, goals.detach().cpu().numpy(), returns, env.obs_limits,
             rmin, rmax, filepath=f"images/goals_iter_{i}.svg",
             pos_label="Agent position", title=f"Iteration {i}"
         )

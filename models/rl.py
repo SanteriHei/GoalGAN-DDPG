@@ -1,13 +1,11 @@
 import torch
 import torch.nn.functional as F
 from torch import nn
-import copy
+
 import numpy as np
-import random
+import copy
 
-from collections import deque, namedtuple
-
-from typing import Deque, Union, Tuple, Sequence
+from typing import Union, Tuple, Sequence
 import numpy.typing as npt
 
 
@@ -142,32 +140,49 @@ class Actor(nn.Module):
     ----------
     state_size: int
         The dimension of states
+    action_range: int
+        The range for the actions. Should be symmetric, 
+        i.e. if the range for actions is [-10, 10], set action-range to 10. 
     action_size: int
         The dimension of actions
     fc1_units: int, Optional
         The amount of units in the first hidden layer. Default 256
     fc2_units: int, Optional
         The amount of units in the second hidden layer. Default 256
+    use_norm: bool, Optional
+        Determines if batch normalization is used between layers. Default False.
     '''
-    def __init__(self, state_size: int, action_size: int, fc1_units: int = 256, fc2_units: int = 256) -> None:
+    def __init__(self, state_size: int, action_size: int, action_range: int, fc1_units: int = 256, fc2_units: int = 256, use_norm: bool = False) -> None:
         super(Actor, self).__init__()
-        self.layers = nn.ModuleList([
-            nn.Linear(state_size, fc1_units),
-            nn.ReLU(),
-            nn.Linear(fc1_units, fc2_units),
-            nn.ReLU(),
-            nn.Linear(fc2_units, action_size),
-            nn.Tanh()
-        ])
+
+        self._action_range: int = action_range
+        #self._layers = nn.ModuleList([
+        #    nn.Linear(state_size, fc1_units),
+        #    nn.ReLU(),
+        #    nn.Linear(fc1_units, fc2_units),
+        #    nn.ReLU(),
+        #    nn.Linear(fc2_units, action_size),
+        #    nn.Tanh()
+        #])
+
+        self._fc1 = nn.Linear(state_size, fc1_units)
+        self._norm1 = nn.LayerNorm(fc1_units) if use_norm else None
+
+        self._fc2 = nn.Linear(fc1_units, fc2_units)
+        self._norm2 = nn.LayerNorm(fc2_units) if use_norm else None
+
+        self._fc3 = nn.Linear(fc2_units, action_size)
+        
+        self._use_norm = use_norm
         self.reset()
 
     def reset(self) -> None:
         '''
         Resets the weights of the model by applying a initalization function
         '''
-        self.layers[0].weight.data.uniform_(*_hidden_init(self.layers[0]))
-        self.layers[2].weight.data.uniform_(*_hidden_init(self.layers[2]))
-        self.layers[4].weight.data.uniform_(-3e-3, 3e-3)
+        self._fc1.weight.data.uniform_(*_hidden_init(self._fc1))
+        self._fc2.weight.data.uniform_(*_hidden_init(self._fc2))
+        self._fc3.weight.data.uniform_(-3e-3, 3e-3)
 
     def forward(self, x: torch.Tensor) -> torch.Tensor:
         '''
@@ -181,13 +196,22 @@ class Actor(nn.Module):
         Returns
         -------
         torch.Tensor
-            The resulting actions
+            The resulting actions, in range of (-action_range, action_range)
 
         '''
-        for layer in self.layers:
-            x = layer(x)
-        return x
-    
+
+        x = F.relu(self._fc1(x))
+        if self._use_norm:
+            x = self._norm1(x)
+        
+        x = F.relu(self._fc2(x))
+        if self._use_norm:
+            x = self._norm2(x)
+
+        #Tanh returns values between (-1,1). Multiply by the symmetric range to produce correct results
+        return torch.tanh(self._fc3(x))*self._action_range
+
+
 
 class Critic(nn.Module):
     '''
@@ -204,21 +228,32 @@ class Critic(nn.Module):
         The amount of units in the first hidden layer. Default 256
     fsc2_units: int, Optional
         The amout of units in the second hidden layer. Default 256
+    use_norm: bool, Optional
+        Determines if batch normalization is used between layers. Default False.
     '''
-    def __init__(self, state_size: int, action_size: int, fsc1_units: int = 256, fsc2_units: int = 256) -> None:
+    def __init__(self, state_size: int, action_size: int, fc1_units: int = 256, fc2_units: int = 256, use_norm: bool = False) -> None:
         super(Critic, self).__init__()
-        self._fsc1 = nn.Linear(state_size, fsc1_units)
-        self._fsc2 = nn.Linear(fsc1_units + action_size, fsc2_units)
-        self._fsc3 = nn.Linear(fsc2_units, 1)
+        
+        self._fc1 = nn.Linear(state_size, fc1_units)
+        self._norm1 = nn.LayerNorm(fc1_units) if use_norm else None
+
+        self._fc2 = nn.Linear(fc1_units + action_size, fc2_units)
+        self._norm2 = nn.LayerNorm(fc2_units) if use_norm else None
+        
+        self._fc3 = nn.Linear(fc2_units, 1)
+        
+        self._use_norm = use_norm
+
+
         self.reset()
 
     def reset(self) -> None:
         '''
         Resets the networks weights by applying initalization function
         '''
-        self._fsc1.weight.data.uniform_(*_hidden_init(self._fsc1))
-        self._fsc2.weight.data.uniform_(*_hidden_init(self._fsc2))
-        self._fsc3.weight.data.uniform_(-3e-3, 3e-3)
+        self._fc1.weight.data.uniform_(*_hidden_init(self._fc1))
+        self._fc2.weight.data.uniform_(*_hidden_init(self._fc2))
+        self._fc3.weight.data.uniform_(-3e-3, 3e-3)
 
     def forward(self, state: torch.Tensor, action: torch.Tensor) -> torch.Tensor:
         '''
@@ -236,10 +271,16 @@ class Critic(nn.Module):
         torch.Tensor
             The Q-value.
         '''
-        xs = F.relu(self._fsc1(state))
+        xs = F.relu(self._fc1(state))
+        if self._use_norm:
+            xs = self._norm1(xs)
+
         x = torch.cat((xs, action), dim=1)
-        x = F.relu(self._fsc2(x))
-        return self._fsc3(x)
+        x = F.relu(self._fc2(x))
+        if self._use_norm:
+            xs = self._norm2(x)
+        
+        return self._fc3(x)
 
 
 class OUNoise:
@@ -264,13 +305,16 @@ class OUNoise:
         sigma_min: float = 0.05, sigma_decay: float = 0.975, seed: Union[int, Sequence[int]] = None
     ) -> None: 
         self._mu = mu * np.ones(size)
-        self._theta = theta
-        self._sigma = sigma
-        self._sigma_min = sigma_min
-        self._sigma_decay = sigma_decay
+        self._theta: float = theta
+        self._sigma: float = sigma
+        self._sigma_min: float = sigma_min
+        self._sigma_decay:float = sigma_decay
         self._size = size
         self._state = None
         self._rng = np.random.default_rng() if seed is None else np.random.default_rng(seed)
+        #TODO: the variance + variance_ decay
+        #self._var: float = var
+        #self._variance_decay_rate: float = 0.999
         self.reset()    
 
     def reset(self) -> None:
@@ -293,7 +337,7 @@ class OUNoise:
             The sample from the distribution.
         '''
         assert self._state is not None, "Trying to call sample before setting the state (can be set by calling reset)"
-        dx = self._theta * (self._mu - self._state) + self._sigma * self._rng.standard_normal(self._size)
+        dx = self._theta * (self._mu - self._state) + self._sigma * self._rng.standard_normal(size=self._size)
         self._state += dx
         return self._state
 

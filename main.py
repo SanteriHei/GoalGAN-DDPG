@@ -54,6 +54,11 @@ def _create(env: str, generator_config: GANConfig, discriminator_config: GANConf
     ddpg_config.state_size = env.observation_space.shape[0]
     ddpg_config.action_size = env.action_space.shape[0]
 
+    assert env.action_limits[0] != env.action_limits[1], f"The action range should be symmetric, i.e. (-x, x). Got {env.action_limits}"
+
+    ddpg_config.action_range = abs(env.action_limits[0])
+
+
     #Create agent for the enviroment
     agent = DDPGAgent(ddpg_config, device)
 
@@ -104,7 +109,8 @@ def _parse_and_train(args: argparse.Namespace) -> None:
     #Create configuration for the DDPG Agent with specified hyperparameters.
     ddpg_config = DDPGConfig(
         actor_lr=args.actor_lr, critic_lr=args.critic_lr, weight_decay=args.weight_decay,
-        tau=args.tau, gamma=args.gamma, buffer_size=args.buffer_size, batch_size=args.batch_size
+        tau=args.tau, gamma=args.gamma, buffer_size=args.buffer_size, batch_size=args.batch_size,
+        actor_batch_norm=args.actor_batch_norm, critic_batch_norm=args.critic_batch_norm
     )
    
     env, agent, lsgan = _create(args.env, generator_config, discriminator_config, ddpg_config, device)
@@ -121,7 +127,6 @@ def _parse_and_train(args: argparse.Namespace) -> None:
     delim = f"{10*'-'}|{14*'-'}|{17*'-'}|{13*'-'}|{14*'-'}|{10*'-'}|{8*'-'}|{8*'-'}"
     values = f"{args.train_iter_count:^10d}|{args.gan_iter_count:^14d}|{args.policy_iter_count:^17d}|{args.episode_count:^13d}|{args.timestep_count:^14d}|{args.goal_count:^10d}|{args.rmin:^8.4f}|{args.rmax:^8.4f}"
     _writer.add_text("train/hyperparams", f"{header}\n{delim}\n{values}")
-
 
     if args.save_after is None:
         train(
@@ -165,7 +170,9 @@ def _parse_and_eval(args: argparse.Namespace) -> None:
     #Define the state and action sizes.
     ddpg_config.state_size = env.observation_space.shape[0]
     ddpg_config.action_size = env.action_space.shape[0]
-
+    
+    assert env.action_limits[0] != env.action_limits[1], f"The action range should be symmetric, i.e. (-x, x). Got {env.action_limits}"
+    ddpg_config.action_range = abs(env.action_limits[0])
     #Create agent for the enviroment
     agent = DDPGAgent(ddpg_config, device)
 
@@ -193,7 +200,10 @@ def _add_ddpg_hyperparameters(group) -> None:
                                                                                                    " replay memory of the Agent. Default %(default)s"))
     group.add_argument("--batch-size",           type=int,   default=128 ,                   help=("Defines the batch size of the replay buffer,"
                                                                                                    " i.e. the size of sampling. Default %(default)s"))
-
+    group.add_argument("--actor-batch-norm",     action="store_true",                        help=("If this flag is set, the actor uses"
+                                                                                                   " batch normalization"))
+    group.add_argument("--critic-batch-norm",    action="store_true",                        help=("If this flag is set, the critic uses"
+                                                                                                  " batch normalization"))
 def get_parser() -> ArgumentParser: 
     '''
     Creates an argument parser that defines the CLI for training and evaluating the Goal GAN
@@ -309,5 +319,5 @@ def get_parser() -> ArgumentParser:
 
 if __name__ == '__main__':
     parser = get_parser()
-    args = parser.parse_args()    
+    args = parser.parse_args()   
     args.func(args)

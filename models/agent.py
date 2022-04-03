@@ -37,6 +37,9 @@ class DDPGConfig:
     state_size: int 
         Defines the size of each state. The state MUST have 1-dimensional size,
         i.e. the tuple defining it's size has only 1 element.
+    action_range: int
+        The range for the actions. Should be symmetric,
+        i.e. if the range for actions is [-10, 10], set action-range to 10.
     actor_lr: float, Optional
         The learning rate used with the actor's optimizer. Default 0.0001
     critic_lr: float, Optional
@@ -52,9 +55,14 @@ class DDPGConfig:
         The maximum size of a memory buffer. Default 100 000
     batch_size: int, Optional
         The size of the sampled batch from the memory buffer. Default 128
+    actor_batch_norm: bool, Optional
+        Determines if the actor uses batch normalization between layers. Default False.
+    critic_batch_nor,: bool, Optional
+        Determines if the critic uses batch normalization between layers. Default False.
     '''
     action_size: int = _NOT_SET
     state_size: int = _NOT_SET
+    action_range: float = _NOT_SET
     actor_lr: float = 1e-4
     critic_lr: float = 1e-4
     weight_decay: float = 0.0
@@ -62,12 +70,14 @@ class DDPGConfig:
     gamma: float = 0.99
     buffer_size: int = int(1e5)
     batch_size: int = 128
+    actor_batch_norm: bool = False
+    critic_batch_norm: bool = False
 
     def __str__(self) -> str:
         '''Returns a simple table presentation of the config values'''
-        header = f"{'action-size':^11s}|{'state-size':^10s}|{'actor-lr':^8s}|{'critic-lr':^9s}|{'weight-decay':^12s}|{'tau':^7s}|{'gamma':^9s}|{'buffer-size':^11s}|{'batch-size':^10s}"
-        delim = f"{11*'-'}|{10*'-'}|{8*'-'}|{9*'-'}|{12*'-'}|{7*'-'}|{9*'-'}|{11*'-'}|{10*'-'}"
-        values = f"{self.action_size:^11d}|{self.state_size:^10d}|{self.actor_lr:^8.4f}|{self.critic_lr:^9.4f}|{self.weight_decay:^12.6f}|{self.tau:^7.5f}|{self.gamma:^9.4f}|{self.buffer_size:^11d}|{self.batch_size:^10d}"
+        header = f"{'action-size':^11s}|{'state-size':^10s}|{'action-range':^12s}|{'actor-lr':^8s}|{'critic-lr':^9s}|{'weight-decay':^12s}|{'tau':^7s}|{'gamma':^9s}|{'buffer-size':^11s}|{'batch-size':^10s}|{'actor-norm':^10s}|{'critic-norm':^11s}"
+        delim = f"{11*'-'}|{10*'-'}|{12*'-'}|{8*'-'}|{9*'-'}|{12*'-'}|{7*'-'}|{9*'-'}|{11*'-'}|{10*'-'}|{10*'-'}|{11*'-'}"
+        values = f"{self.action_size:^11d}|{self.state_size:^10d}|{self.action_range:^12.4f}|{self.actor_lr:^8.4f}|{self.critic_lr:^9.4f}|{self.weight_decay:^12.6f}|{self.tau:^7.5f}|{self.gamma:^9.4f}|{self.buffer_size:^11d}|{self.batch_size:^10d}|{str(self.actor_batch_norm):^10s}|{str(self.critic_batch_norm):^11s}"
         return f"{header}\n{delim}\n{values}"
 
 class DDPGAgent:    
@@ -90,23 +100,32 @@ class DDPGAgent:
         
         self._state_size: int = self._check_dim_and_unwrap(config.state_size)
         self._action_size: int = self._check_dim_and_unwrap(config.action_size)
+        self._action_range: int = config.action_range
         self._device: torch.device = torch.device(device) if isinstance(device, str) else device
 
         assert self._state_size != _NOT_SET, f"No state size was specified!"
         assert self._action_size != _NOT_SET, f"No action size was specified!"
-
+        assert self._action_range != _NOT_SET, f"No action range was specified!"
 
         #Actor network
-        self._actor_local = Actor(self._state_size, self._action_size).to(self._device)
-        self._actor_target = Actor(self._state_size, self._action_size).to(self._device)
+        self._actor_local = Actor(
+            self._state_size, self._action_size, 
+            self._action_range, use_norm=config.actor_batch_norm
+        ).to(self._device)
+
+        self._actor_target = Actor(
+            self._state_size, self._action_size,
+            self._action_range, use_norm=config.actor_batch_norm
+        ).to(self._device)
+        
         self._actor_optim = optim.Adam(
             self._actor_local.parameters(), 
             lr=config.actor_lr, weight_decay=config.weight_decay
         )
 
         #Critic network
-        self._critic_local = Critic(self._state_size, self._action_size).to(self._device)
-        self._critic_target = Critic(self._state_size, self._action_size).to(self._device)
+        self._critic_local = Critic(self._state_size, self._action_size, use_norm=config.critic_batch_norm).to(self._device)
+        self._critic_target = Critic(self._state_size, self._action_size, use_norm=config.critic_batch_norm).to(self._device)
         self._critic_optim = optim.Adam(
             self._critic_local.parameters(),
             lr=config.critic_lr, weight_decay=config.weight_decay
@@ -175,12 +194,7 @@ class DDPGAgent:
         self._buffer.append(state, action, reward, done, next_state)
 
 
-        ##if len(self._buffer) > self._buffer.batch_size:
-        ##    experiences = self._buffer.sample()
-        ##    self.learn(experiences)
-
-
-    def act(self, state: npt.NDArray, use_noise: bool = True, vrange: Tuple[float, float] = (0.0, 1.0)) -> npt.NDArray:
+    def act(self, state: npt.NDArray, use_noise: bool = True) -> npt.NDArray:
         '''
         Uses the current policy to create actions for the given state
 
@@ -191,13 +205,11 @@ class DDPGAgent:
         use_noise: bool, Optional
             Controls if additional noise is added to the 
             generated actions. Default True.
-        vrange: Tuple[int, int], Optional
-            Defines the range, where the values should be clipped to.
         Returns
         -------
         npt.NDArray
-            The generated actions, where value have been 
-            clipped to to be in range of values defined in the range parameter.
+            The generated actions, where values are in the (-action_range, action_range) 
+            interval. To set action range, see the constructor.
         '''
 
         state = torch.from_numpy(state).float().to(self._device)
@@ -214,8 +226,8 @@ class DDPGAgent:
 
         if use_noise:
             cpu_action += self._noise.sample()
+        return cpu_action.squeeze()
 
-        return np.clip(cpu_action, *vrange).squeeze()
 
 
     def log_losses_and_reset(self, global_step: Optional[int] = None) -> None:

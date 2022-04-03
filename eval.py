@@ -46,6 +46,7 @@ def eval_policy(agent: DDPGAgent, env: MazeEnv, eval_iter: int, episode_count: i
             state = env.reset()
             for ts in range(timestep_count):
                 action = agent.act(state, use_noise=False)
+                print(action)
                 *_, done = env.step(action)
                 if render:
                     env.render()
