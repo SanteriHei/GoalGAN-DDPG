@@ -1,3 +1,4 @@
+from email import policy
 from tracemalloc import start
 from turtle import update
 import torch
@@ -17,7 +18,7 @@ _logger = utils.get_logger(__name__)
 _writer = utils.get_writer()
 
 
-def _clean_up(avg_coverages: npt.NDArray, rewards: npt.NDArray, gan: LSGAN, agent: DDPGAgent) -> None:
+def _clean_up(avg_coverages: npt.NDArray, gan: LSGAN, agent: DDPGAgent) -> None:
     '''
     Convience function to save figures, and close all tensorboard writers when the training is done.
 
@@ -25,8 +26,6 @@ def _clean_up(avg_coverages: npt.NDArray, rewards: npt.NDArray, gan: LSGAN, agen
     ----------
     avg_coverages: npt.NDArray
         The average coverages of the training run
-    rewards: npt.NDArray
-        The average rewards from policy evaluation
     gan: LSGAN
         The GAN that was trained.
     agent: DDPGAgent
@@ -43,14 +42,6 @@ def _clean_up(avg_coverages: npt.NDArray, rewards: npt.NDArray, gan: LSGAN, agen
         xlabel="iterations", ylabel="avg coverage", figsize=(25, 10)
     )
     
-
-    np.save("checkpoints/avg_rewards.npy", rewards)
-    x = np.arange(rewards.shape[0])
-    utils.line_plot(
-        np.arange(rewards.shape[0]), rewards,  close_fig=True,
-        filepath="images/avg_rewards.svg", title="Average rewards",
-        xlabel="Outer iteration", ylabel="Avg reward/episode", figsize=(25, 10) 
-    )
 
     gan.close()
     agent.close()
@@ -110,9 +101,6 @@ def _update_or_eval_policy(
                     #When eval mode is true, use noise is set to false and vice versa.   
                     action = agent.act(state, use_noise=not eval_mode)
 
-                    if ( np.abs(np.max(np.abs(action)) - env.action_limits[1]) < 1e-3 ):
-                        _logger.debug(f"Action min: {np.min(action)}, max: {np.max(action)}")
-
                 next_state, reward, done = env.step(action)
                 
                 if not eval_mode:
@@ -135,6 +123,63 @@ def _update_or_eval_policy(
     else:
         global_rewards[global_step] = avg_reward
         return np.clip(env.achieved_goals_counts/(policy_iter_count*episode_count), 0,1)
+
+def _update_policy(
+    agent: DDPGAgent, env: MazeEnv, goals: npt.NDArray, policy_iter_count: int,
+    episode_count: int, timestep_count: int, global_step: int
+    ) -> None:
+    
+    rewards = np.zeros((policy_iter_count*episode_count, ))
+    env.eval = False
+    env.goals = goals
+    start_steps, update_after = 1000, 2000
+    total_steps = 0
+
+    for p in range(policy_iter_count):
+        for ep in range(episode_count):
+            state = env.reset()
+            for ts in range(timestep_count):
+                action = env.action_space.sample() if  total_steps < start_steps else agent.act(state, use_noise=True) 
+                next_state, reward, done = env.step(action)
+
+                #-------Update agent's memory buffer---------------
+                agent.step(state, action, reward, next_state, done)
+
+                #------- If buffer is full, update the policy-------
+                if agent.buffer_full() and total_steps > update_after:
+                    agent.learn()
+
+                total_steps += 1
+                rewards[p*episode_count + ep] = reward
+
+                if done:
+                    _logger.info(f"(P: {p}, ep: {ep}, ts: {ts}): Goal found")
+                    break
+    _writer.add_scalar(f"reward/update-avg-reward", rewards.mean(), global_step=global_step)
+    agent.log_losses_and_reset(global_step)
+
+
+def _eval_policy(agent: DDPGAgent, env: MazeEnv, goals: npt.NDArray, episode_count: int,
+    timestep_count: int, global_step: int
+) -> npt.NDArray:
+    
+    returns = np.zeros(len(goals))
+    env.eval = True
+    for i in range(goals.shape[0]):
+        env.goals = [goals[i]]
+        for ep in range(episode_count):
+            state = env.reset()
+            for ts in range(timestep_count):
+                action = agent.act(state, use_noise=False)
+
+                *_, done = env.step(action)
+                
+                if done:
+                    _logger.info(f"Goal {i} found in Episode {ep}, timestep: {ts}")
+        returns[i] = env.achieved_goals_counts[0]
+    
+    _writer.add_scalar(f"reward/update-avg-goals-found", returns.mean(), global_step=global_step)
+    return np.clip(returns/episode_count, 0,1)
 
 
 def _observe_states(agent: DDPGAgent, env: MazeEnv, goals: Sequence[npt.NDArray], episode_count: int, timestep_count: int) -> npt.NDArray:
@@ -347,8 +392,6 @@ def train(
     
     #Save the mean value of the returns to plot a "coverage" graph
     avg_coverages = np.zeros((iter_count, ), dtype=np.float64)
-    rewards = np.zeros((iter_count, ), dtype=np.float64)
-
 
     _logger.info(f"Starting initializing the GAN")
     _initialize_gan(gan, agent, env, gan_iter_count, goal_count, episode_count, timestep_count)
@@ -359,10 +402,10 @@ def train(
     consecutive_iters = 0
     
     #Use points that are close to the agent as the first set of old goals
-    old_goals = torch.clip(
-        torch.from_numpy(env.agent_pos.astype(np.float32)) + 0.5*torch.normal(0, 1, (old_goal_count, env.goal_size)), *env.obs_limits
-    ).to(gan.device)
-    #old_goals = None
+    #old_goals = torch.clip(
+    #    torch.from_numpy(env.agent_pos.astype(np.float32)) + 0.5*torch.normal(0, 1, (old_goal_count, env.goal_size)), *env.obs_limits
+    #).to(gan.device)
+    old_goals = None
 
     for i in range(iter_count):
         _logger.info(f"OUTER ITERATION {i+1}")
@@ -371,16 +414,16 @@ def train(
         gan_goals = _create_goals(gan,  gan_goal_count, env.obs_limits)
         goals = gan_goals if old_goals is None else torch.cat([gan_goals, utils.sample_tensor(old_goals, old_goal_count)])
         
-        env.goals = goals.detach().cpu().numpy()
+        np_goals = goals.detach().cpu().numpy()
 
         #---------- Update the policy ---------
         _logger.info(f"Starting updating the policy for {policy_iter_count} iterations")
-        _update_or_eval_policy(agent,env, policy_iter_count, episode_count, timestep_count, eval_mode=False, global_step=i)
+        _update_policy(agent, env, np_goals, policy_iter_count, episode_count, timestep_count, global_step=i)
         _logger.info("Stopping the policy update")
 
         #---------- Evaluate the Policy -------
         _logger.info("Starting evaluating the policy")
-        returns = _update_or_eval_policy(agent, env, 1, episode_count, timestep_count, eval_mode=True, global_rewards=rewards, global_step=i)
+        returns = _eval_policy(agent, env, np_goals, episode_count, timestep_count, i)
         _logger.info("Stopping evaluating the policy")
         
         avg_coverages[i] = np.mean(returns)
@@ -429,7 +472,7 @@ def train(
             gan.save_model(gan_path)
             _logger.info(f"Saved gan to {gan_path}")
     
-    _clean_up(avg_coverages,rewards, gan, agent)
+    _clean_up(avg_coverages, gan, agent)
     _logger.info("Training done!")
 
 

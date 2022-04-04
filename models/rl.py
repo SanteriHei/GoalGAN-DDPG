@@ -54,6 +54,9 @@ class ReplayBuffer:
         '''Returns the batch size of the buffer'''
         return self._batch_size
 
+    def is_full(self) -> bool:
+        '''Returns True if the buffer is at it's maximum capacity.'''
+        return self._len == self._buffer_size
 
     def append(self,  state: npt.NDArray, action: npt.NDArray, reward: float, done: bool,next_state: npt.NDArray) -> None:
         '''
@@ -304,9 +307,6 @@ class OUNoise:
         self._size = size
         self._state = None
         self._rng = np.random.default_rng() if seed is None else np.random.default_rng(seed)
-        #TODO: the variance + variance_ decay
-        #self._var: float = var
-        #self._variance_decay_rate: float = 0.999
         self.reset()    
 
     def reset(self) -> None:
@@ -329,6 +329,7 @@ class OUNoise:
             The sample from the distribution.
         '''
         assert self._state is not None, "Trying to call sample before setting the state (can be set by calling reset)"
+        var = max((self._var*self._variance_decay_rate, 0.1))
         dx = self._theta * (self._mu - self._state) + self._sigma * self._rng.standard_normal(size=self._size)
         self._state += dx
         return self._state

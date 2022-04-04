@@ -228,7 +228,9 @@ class DDPGAgent:
             cpu_action += self._noise.sample()
         return cpu_action.squeeze()
 
-
+    def buffer_full(self) -> bool:
+        '''Returns True if the replay buffer is full'''
+        return self._buffer.is_full()
 
     def log_losses_and_reset(self, global_step: Optional[int] = None) -> None:
         '''
