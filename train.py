@@ -163,7 +163,7 @@ def _eval_policy(agent: DDPGAgent, env: MazeEnv, goals: npt.NDArray, episode_cou
     timestep_count: int, global_step: int
 ) -> npt.NDArray:
     
-    returns = np.zeros(len(goals))
+    returns = np.zeros((goals.shape[0], ))
     env.eval = True
     for i in range(goals.shape[0]):
         env.goals = [goals[i]]
@@ -402,10 +402,10 @@ def train(
     consecutive_iters = 0
     
     #Use points that are close to the agent as the first set of old goals
-    #old_goals = torch.clip(
-    #    torch.from_numpy(env.agent_pos.astype(np.float32)) + 0.5*torch.normal(0, 1, (old_goal_count, env.goal_size)), *env.obs_limits
-    #).to(gan.device)
-    old_goals = None
+    old_goals = torch.clip(
+        torch.from_numpy(env.agent_pos.astype(np.float32)) + 0.5*torch.normal(0, 1, (old_goal_count, env.goal_size)), *env.obs_limits
+    ).to(gan.device)
+    #old_goals = None
 
     for i in range(iter_count):
         _logger.info(f"OUTER ITERATION {i+1}")

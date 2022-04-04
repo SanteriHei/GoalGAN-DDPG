@@ -48,7 +48,7 @@ def _create(env: str, generator_config: GANConfig, discriminator_config: GANConf
         Returns the created env, agent and GAN model.
     '''
     #Create the environment
-    env = MazeEnv(args.env, _GOAL_SIZE)
+    env = MazeEnv(args.env, _GOAL_SIZE, reward_range=(-1., 1.))
 
     #Define the state and action sizes.
     ddpg_config.state_size = env.observation_space.shape[0]

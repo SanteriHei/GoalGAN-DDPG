@@ -329,7 +329,6 @@ class OUNoise:
             The sample from the distribution.
         '''
         assert self._state is not None, "Trying to call sample before setting the state (can be set by calling reset)"
-        var = max((self._var*self._variance_decay_rate, 0.1))
         dx = self._theta * (self._mu - self._state) + self._sigma * self._rng.standard_normal(size=self._size)
         self._state += dx
         return self._state

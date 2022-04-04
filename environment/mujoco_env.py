@@ -188,7 +188,6 @@ class MazeEnv:
         for i, g in enumerate(self._goals):
             assert g.shape == self._agent_pos.shape, "The shapes of the goals and agent positions don't match"
             if self._is_goal_reached(g):
-                self._logger.debug("A goal was found in Maze")
                 goal_reached = True
                 
                 if self._eval:
