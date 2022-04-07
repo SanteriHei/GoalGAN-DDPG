@@ -70,7 +70,11 @@ class MazeEnv:
         True if the distance between the current position and the goal is small enough (defined by tol), false otherwise
 
         '''
-        return np.linalg.norm(self._agent_pos - goal) < self._tol  #return np.allclose(self._agent_pos, goal, rtol=self._tol)
+        return np.linalg.norm(self._agent_pos - goal) < self._tol 
+
+    def _get_reward(self) -> float:
+        '''Reward is a negative distance to the closest goal'''
+        return -np.linalg.norm(self._agent_pos - self._goals, axis=-1).mean()
 
     @property
     def action_space(self) -> gym.spaces.box.Box:
@@ -186,6 +190,7 @@ class MazeEnv:
             raise RuntimeError("The step was tried to call before the goals were set!")
 
         for i, g in enumerate(self._goals):
+            
             assert g.shape == self._agent_pos.shape, "The shapes of the goals and agent positions don't match"
             if self._is_goal_reached(g):
                 self._logger.debug("A goal was found in Maze")
@@ -195,11 +200,9 @@ class MazeEnv:
                     self._logger.debug("Eval mode: add goal statistics")
                     self._achieved_goals[i] = True
                     self._achieved_goals_counts[i] += 1
-                
-    
-        #A sparse reward function, as the GAN should generate feasible goals.
-        reward = max(self._reward_range) if goal_reached else min(self._reward_range)
-        return obs, reward, reward == max(self._reward_range)
+
+        #reward = 1.0 if goal_reached else 0.0
+        return obs, self._get_reward(),  goal_reached
 
     def reset(self) -> npt.NDArray:
         '''

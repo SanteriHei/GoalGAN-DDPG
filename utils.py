@@ -1,3 +1,4 @@
+from importlib.resources import path
 import warnings
 import torch
 from torch.utils.tensorboard import SummaryWriter
@@ -32,8 +33,28 @@ _COLORS: Mapping[str, str] = {
 _LOG_DIR: str= f"runs/{datetime.datetime.now().strftime('%m-%dT%H:%M')}"
 
 
+def compined_shape(length: int, shape: Optional[Tuple]=None) -> Tuple:
+    '''
+    Calculates the computed shape and returns it as a single tuple.
 
-def _rescale(data: Union[Numeric, npt.NDArray], old_range: Tuple[float, float], new_range: Tuple[float, float] = (0.0, 1.0)) -> Union[Numeric, npt.NDArray]:
+    Parameters
+    ----------
+    length: int
+        The lenght of the array
+    shape: Optional[Tuple]
+        The shape of the object. Default None.
+    
+    Returns
+    -------
+    Tuple:
+        Returns the combined shape. If shape is none, returns (lenght, ) tuple,
+        otherwise combines the length and shape to a single tuple
+    ''' 
+    if shape is None:
+        return (length,)
+    return (length, shape) if np.ndim(shape) == 0 else (length, *shape)
+
+def rescale(data: Union[Numeric, npt.NDArray], old_range: Tuple[float, float], new_range: Tuple[float, float] = (0.0, 1.0)) -> Union[Numeric, npt.NDArray]:
     '''
     Rescales data linearly from given range to a new range.
 
@@ -50,8 +71,9 @@ def _rescale(data: Union[Numeric, npt.NDArray], old_range: Tuple[float, float], 
     Numeric | npt.NDArray
         The rescaled data. Will be of same type as the passed in value. 
     '''
-    min_val, max_val = min(old_range), max(old_range)
-    return ((data - min_val) / (max_val - min_val))* (max(new_range) - min(new_range))
+    old_min, old_max = min(old_range), max(old_range)
+    new_min, new_max = min(new_range), max(new_range)
+    return (((data - old_min) / (old_max - old_min))* (new_max - new_min)) + new_min 
 
 
 def _create_env_image() -> npt.NDArray:
@@ -159,7 +181,9 @@ def get_device_repr(device: Union[str, torch.device]) -> str:
     device = torch.device(device) if isinstance(device, str) else device
     return torch.cuda.get_device_name(device) if device.type == 'cuda' else "cpu"
 
-
+def is_symmetric_range(range: Tuple[float, float]) -> bool:
+    '''Returns true if the given range is symmetric (i.e. from -x to x'''
+    return abs(range[0]) == abs(range[1])
 
 def display_agent_and_goals(
     agent_pos: npt.NDArray, goals: npt.ArrayLike, returns: npt.ArrayLike, 
@@ -218,8 +242,8 @@ def display_agent_and_goals(
 
     ax.set_title(title)
 
-    scaled_pos = _rescale(agent_pos, coord_range, (0, _IMG_SIZE[0]))
-    scaled_goals = _rescale(goals, coord_range, (0, _IMG_SIZE[0]))
+    scaled_pos = rescale(agent_pos, coord_range, (0, _IMG_SIZE[0]-1))
+    scaled_goals = rescale(goals, coord_range, (0, _IMG_SIZE[0]-1))
 
     scaled_goals = scaled_goals if scaled_goals.shape[0] == 2 else scaled_goals.T
 
@@ -314,7 +338,13 @@ def line_plot(x: npt.NDArray, y: npt.NDArray, add_std: bool = False, filepath: O
         ax.legend()
 
     if filepath is not None:
-        fig.savefig(filepath)
+        fpath = filepath if isinstance(filepath, pathlib.PurePath) else pathlib.Path(filepath)
+        if not fpath.parent.exists():
+            fpath.parent.mkdir(parents=True, exist_ok=True)
+        
+        if fpath.suffix != '.svg': 
+            warnings.warn(f"Note: Savign as .svg is recommended (using {filepath.suffix} now)")
+        fig.savefig(fpath)
     
     if close_fig:
         plt.close(fig)

@@ -2,6 +2,8 @@ from models.agent import DDPGAgent
 from environment.mujoco_env import MazeEnv
 import numpy as np
 
+#The position of the actual goal
+_GOAL_POS = np.array([0.0, 16.0]).reshape(1,2)
 
 def eval_policy(agent: DDPGAgent, env: MazeEnv, eval_iter: int, episode_count: int, timestep_count: int, render: bool = False) -> None:
     '''
@@ -35,7 +37,7 @@ def eval_policy(agent: DDPGAgent, env: MazeEnv, eval_iter: int, episode_count: i
     ts_counts = np.zeros(episode_count)
 
     env.eval = True
-    env.goals = []
+    env.goals = _GOAL_POS
 
     for i in range(eval_iter):
         #Reset stats

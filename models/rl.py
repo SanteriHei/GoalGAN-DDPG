@@ -304,9 +304,6 @@ class OUNoise:
         self._size = size
         self._state = None
         self._rng = np.random.default_rng() if seed is None else np.random.default_rng(seed)
-        #TODO: the variance + variance_ decay
-        #self._var: float = var
-        #self._variance_decay_rate: float = 0.999
         self.reset()    
 
     def reset(self) -> None:

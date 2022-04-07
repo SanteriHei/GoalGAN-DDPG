@@ -11,7 +11,7 @@ from dataclasses import dataclass
 
 import numpy.typing as npt
 from os import PathLike
-from typing import Union, Optional
+from typing import Union, Optional, Tuple
 
 import utils
 
@@ -38,6 +38,9 @@ class GANConfig:
         The smoothing constant of the optimizer used. Default 0.99
     opt_momentum: float, Optional
         The momentum factor of the optimizer used. Default 1e-3. 
+    output_range: Tuple[float, float], Optional
+        Defines the range where the output of the Generator will be scaled to.
+        Default (-1, 1). NOTE: doens't affect discriminator in any way.
     '''
     input_size: int = 4
     hidden_size: int = 256
@@ -46,6 +49,7 @@ class GANConfig:
     opt_lr: float = 0.01
     opt_alpha: float = 0.99
     opt_momentum: float = 1e-3
+    output_range: Tuple[float, float] = (-1,1)
 
     def __str__(self) -> str:
         '''Returns a simple table presentation of the configs values'''
@@ -131,10 +135,14 @@ class LSGAN:
         )
 
         self._generator_input_size = generator_config.input_size        
+        self._generator_output_range = generator_config.output_range
+
 
         self._a = a
         self._b = b
         self._c = c
+
+
 
         #For logging to console and tensorboard
         self._logger = utils.get_logger(__name__)
@@ -200,7 +208,12 @@ class LSGAN:
         '''
         if z.device != self._device:
             z = z.to(self._device)
-        return self._generator.forward(z)
+        goals = self._generator.forward(z)
+        if utils.is_symmetric_range(self._generator_output_range):
+            return goals*max(self._generator_output_range)
+        #Tanh creates values between (-1, 1)
+        return utils.rescale(goals, (-1, 1), self._generator_output_range)
+
 
     def save_model(self, path: Union[str, PathLike]) -> None:
         '''

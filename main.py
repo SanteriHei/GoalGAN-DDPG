@@ -65,6 +65,7 @@ def _create(env: str, generator_config: GANConfig, discriminator_config: GANConf
     #Generators input size is the "noise size".
     generator_config.input_size = 4
     generator_config.output_size = env.goal_size
+    generator_config.output_range = env.obs_limits
     
     #Discriminator takes in items with same size as generator's output, and produces only 1 value.
     discriminator_config.input_size = env.goal_size
@@ -161,7 +162,8 @@ def _parse_and_eval(args: argparse.Namespace) -> None:
     #Create configuration for the DDPG Agent with specified hyperparameters.
     ddpg_config = DDPGConfig(
         actor_lr=args.actor_lr, critic_lr=args.critic_lr, weight_decay=args.weight_decay,
-        tau=args.tau, gamma=args.gamma, buffer_size=args.buffer_size, batch_size=args.batch_size
+        tau=args.tau, gamma=args.gamma, buffer_size=args.buffer_size, batch_size=args.batch_size,
+        actor_batch_norm=args.actor_batch_norm, critic_batch_norm=args.critic_batch_norm
     )
 
     #Create the environment
@@ -173,6 +175,8 @@ def _parse_and_eval(args: argparse.Namespace) -> None:
     
     assert env.action_limits[0] != env.action_limits[1], f"The action range should be symmetric, i.e. (-x, x). Got {env.action_limits}"
     ddpg_config.action_range = abs(env.action_limits[0])
+
+
     #Create agent for the enviroment
     agent = DDPGAgent(ddpg_config, device)
 

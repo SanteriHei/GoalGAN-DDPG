@@ -1,5 +1,3 @@
-from tracemalloc import start
-from turtle import update
 import torch
 import numpy as np
 import pathlib
@@ -95,6 +93,7 @@ def _update_or_eval_policy(
     tag = "update" if not eval_mode else "eval"
     
     rewards = np.zeros((policy_iter_count*episode_count, ))
+    
     env.eval = eval_mode
     start_steps, update_after = 1000, 2000
     
@@ -102,6 +101,7 @@ def _update_or_eval_policy(
     for p in range(policy_iter_count):
         for ep in range(episode_count):
             state = env.reset()
+            episode_rewards = np.zeros(timestep_count)
             for ts in range(timestep_count):
                   
                 if not eval_mode and total_steps < start_steps:
@@ -114,19 +114,22 @@ def _update_or_eval_policy(
                         _logger.debug(f"Action min: {np.min(action)}, max: {np.max(action)}")
 
                 next_state, reward, done = env.step(action)
-                
+                episode_rewards[ts] = reward
+
                 if not eval_mode:
                     agent.step(state, action, reward, next_state, done)
                     
                 if not eval_mode and total_steps >= update_after:
                     agent.learn()
 
-                rewards[p*episode_count + ep] = reward
                 total_steps += 1
                 if done:
                     _logger.info(f"(Policy iter: {p}, Episode: {ep}): Goal found in {ts} timesteps")
                     break
-    avg_reward = rewards.mean()
+            rewards[p*episode_count + ep] = episode_rewards.mean()
+
+
+    avg_reward = rewards[:ts].mean()
    
 
     _writer.add_scalar(f"reward/{tag}-avg-reward", avg_reward, global_step=global_step)
@@ -204,8 +207,7 @@ def _update_replay(current_goals: torch.Tensor, old_goals: torch.Tensor, eps: fl
     #next iteration
     if old_goals is None:
         return current_goals
-
-
+    
     for g in current_goals:
         #TODO: better mechanism for this loop thing
         is_close = min((torch.dist(g, old_g) for old_g in old_goals)) < eps
@@ -247,11 +249,17 @@ def _initialize_gan(
     rng = np.random.default_rng()
     #Create the initial goals.
     goals = rng.uniform(*env.obs_limits, size=(goal_count, env.goal_size))
-    visited_positions = _observe_states(agent, env, goals, episode_count, timestep_count)
-    labels = np.ones((max(visited_positions.shape), ))
-    gan.train(torch.from_numpy(visited_positions), labels, gan_iter_count, global_step=0)
+    visited_pos = _observe_states(agent, env, goals, episode_count, timestep_count)
+    labels = np.ones((max(visited_pos.shape)))
+    gan.train(torch.from_numpy(visited_pos), labels, gan_iter_count, global_step=0)
 
-
+def _initialize_random_goals(gan: LSGAN, initial_pos: npt.NDArray, goal_count: int, gan_iter_count: int, limits: Tuple[float, float]) -> torch.Tensor:
+    rng = np.random.default_rng()
+    initial_goals = np.clip(
+        initial_pos + 0.25*rng.standard_normal(utils.compined_shape(goal_count, initial_pos.shape)), *limits        
+    )
+    labels = np.ones(max(initial_goals.shape))
+    gan.train(torch.from_numpy(initial_goals.astype(np.float32)), labels, gan_iter_count, global_step=0)
 
 def _create_goals(gan: LSGAN, goal_count: int, range: Tuple[float, float]) -> torch.Tensor:
     '''
@@ -273,9 +281,8 @@ def _create_goals(gan: LSGAN, goal_count: int, range: Tuple[float, float]) -> to
     z = torch.randn((goal_count, gan.generator_input_size)) 
     #Create goals from the noize
     goals = gan.generate_goals(z).detach()
-
     #Add 0-mean, unit variance noise to the goals
-    return torch.clip(goals + 0.1*torch.normal(0, 1, goals.shape).to(goals.device), *range)
+    return torch.clip(goals + 0.1*torch.normal(0, 1, (min(goals.shape), )).to(goals.device), *range)
     
     
 
@@ -351,7 +358,8 @@ def train(
 
 
     _logger.info(f"Starting initializing the GAN")
-    _initialize_gan(gan, agent, env, gan_iter_count, goal_count, episode_count, timestep_count)
+    _initialize_random_goals(gan, env.agent_pos, gan_goal_count, gan_iter_count, env.obs_limits)
+    #_initialize_gan(gan, agent, env, gan_iter_count, goal_count, episode_count, timestep_count)
     _logger.info("Ending GAN initialization")
     
     
@@ -360,7 +368,7 @@ def train(
     
     #Use points that are close to the agent as the first set of old goals
     old_goals = torch.clip(
-        torch.from_numpy(env.agent_pos.astype(np.float32)) + 0.5*torch.normal(0, 1, (old_goal_count, env.goal_size)), *env.obs_limits
+        torch.from_numpy(env.agent_pos.astype(np.float32)) + 0.5*torch.normal(0, 1, utils.compined_shape(old_goal_count, env.goal_size)), *env.obs_limits
     ).to(gan.device)
     #old_goals = None
 
@@ -369,6 +377,7 @@ def train(
     
         #---------- Create Goals -------------
         gan_goals = _create_goals(gan,  gan_goal_count, env.obs_limits)
+        
         goals = gan_goals if old_goals is None else torch.cat([gan_goals, utils.sample_tensor(old_goals, old_goal_count)])
         
         env.goals = goals.detach().cpu().numpy()
@@ -403,14 +412,12 @@ def train(
 
         
         #---------- Train GAN ------------------
-        gan.reset_weights() #For the absolute lols
+        gan.reset_weights() 
         gan.train(goals, labels, gan_iter_count, global_step=i + 1)
 
         #---------- Update Replay --------------
-        #Don't add the randomly selected close by goals to the buffer.
-        old_goals =  _update_replay(gan_goals, None) if i == 0 else _update_replay(gan_goals, old_goals)
+        old_goals = _update_replay(gan_goals, old_goals)
          
-
         # ---------- Display goals ---------------
         utils.display_agent_and_goals(
             env.agent_pos, goals.detach().cpu().numpy(), returns, env.obs_limits,
@@ -420,7 +427,7 @@ def train(
         _logger.info(f"Displayed agent and goals")
 
         #---------- Save the models -------------
-        if (i + 1) % save_after == 0:
+        if i is not None and (i + 1) % save_after == 0:
             ddpg_path = utils.add_to_path(ddpg_base_path, f"iter_{i}")
             agent.save_model(ddpg_path)
             _logger.info(f"Saved DDPG to {ddpg_path}")
