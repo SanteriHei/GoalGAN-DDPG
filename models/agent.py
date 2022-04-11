@@ -132,7 +132,6 @@ class DDPGAgent:
         )
 
         self._noise = OUNoise((self._action_size,), seed=None)
-        #self._buffer = MemoryBuffer(self._action_size, config.buffer_size, config.batch_size, self._device)
         self._buffer = ReplayBuffer(
             self._action_size, self._state_size, config.buffer_size,
             config.batch_size, self._device
@@ -435,6 +434,5 @@ class DDPGAgent:
             target_param.data.mul_((1.0-tau))
             target_param.data.add_(tau* param.data)
 
-            #target_param.data.copy_(tau * param.data + (1.0 - tau) * target_param.data)
 
     

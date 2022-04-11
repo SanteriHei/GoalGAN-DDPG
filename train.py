@@ -101,7 +101,6 @@ def _update_or_eval_policy(
     for p in range(policy_iter_count):
         for ep in range(episode_count):
             state = env.reset()
-            episode_rewards = np.zeros(timestep_count)
             for ts in range(timestep_count):
                   
                 if not eval_mode and total_steps < start_steps:
@@ -114,7 +113,8 @@ def _update_or_eval_policy(
                         _logger.debug(f"Action min: {np.min(action)}, max: {np.max(action)}")
 
                 next_state, reward, done = env.step(action)
-                episode_rewards[ts] = reward
+                rewards[p*episode_count + ep] = reward
+
 
                 if not eval_mode:
                     agent.step(state, action, reward, next_state, done)
@@ -126,12 +126,8 @@ def _update_or_eval_policy(
                 if done:
                     _logger.info(f"(Policy iter: {p}, Episode: {ep}): Goal found in {ts} timesteps")
                     break
-            rewards[p*episode_count + ep] = episode_rewards.mean()
-
-
-    avg_reward = rewards[:ts].mean()
+    avg_reward = rewards.mean()
    
-
     _writer.add_scalar(f"reward/{tag}-avg-reward", avg_reward, global_step=global_step)
     if not eval_mode:
         agent.log_losses_and_reset(global_step)
@@ -358,13 +354,10 @@ def train(
 
 
     _logger.info(f"Starting initializing the GAN")
-    _initialize_random_goals(gan, env.agent_pos, gan_goal_count, gan_iter_count, env.obs_limits)
-    #_initialize_gan(gan, agent, env, gan_iter_count, goal_count, episode_count, timestep_count)
+    _initialize_gan(gan, agent, env, gan_iter_count, goal_count, episode_count, timestep_count)
     _logger.info("Ending GAN initialization")
     
     
-    #Count on how many consecutive iterations the agent cannot reach any of it's goals.
-    consecutive_iters = 0
     
     #Use points that are close to the agent as the first set of old goals
     old_goals = torch.clip(
@@ -398,17 +391,10 @@ def train(
         labels = utils.label_goals(returns, rmin, rmax)
 
 
-        # --------- Early stop ----------------
-        if np.all(labels == 0):
-            consecutive_iters += 1 
+        if np.count_nonzero(labels) == 0: 
             _logger.warning(f"All labels 0 during training iteration {i+1}")
             _logger.debug(f"{np.count_nonzero(returns)} non-zero returns, where maximum return: {np.max(returns):.4f}")  
-        else:
-            consecutive_iters = 0
-        
-        if consecutive_iters > 10:
-            _logger.critical(f"[iter: {i}] {consecutive_iters} consecutive iters with 0-labels. Aborting!")
-            break
+     
 
         
         #---------- Train GAN ------------------

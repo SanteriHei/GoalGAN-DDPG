@@ -201,8 +201,8 @@ class MazeEnv:
                     self._achieved_goals[i] = True
                     self._achieved_goals_counts[i] += 1
 
-        #reward = 1.0 if goal_reached else 0.0
-        return obs, self._get_reward(),  goal_reached
+        reward = 1.0 if goal_reached else 0.0
+        return obs, reward,  goal_reached
 
     def reset(self) -> npt.NDArray:
         '''
@@ -215,7 +215,6 @@ class MazeEnv:
         '''
         obs = self._env.reset()
         self._agent_pos = obs[:_POS_IDX].copy()
-        #self._logger.info("Environment reseted")
         assert self._agent_pos is not None, "The agent position was set to None!"
         return obs
 
