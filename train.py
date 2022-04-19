@@ -352,11 +352,9 @@ def train(
     avg_coverages = np.zeros((iter_count, ), dtype=np.float64)
     rewards = np.zeros((iter_count, ), dtype=np.float64)
 
-
-    _logger.info(f"Starting initializing the GAN")
+    _logger.info(f"Starting initializing the GAN")  
     _initialize_gan(gan, agent, env, gan_iter_count, goal_count, episode_count, timestep_count)
     _logger.info("Ending GAN initialization")
-    
     
     
     #Use points that are close to the agent as the first set of old goals

@@ -1,16 +1,19 @@
 # Goal-GAN for DDPG Agent
 
-## TODO
-- [x] Ensure the training of the DDPG
-- [x] Train the model
-- [x] Write the evaluation code
-- [x] The range for the positions? (-4 -> 20 maybe?)
-- [x] What are the observations from the enviroment? -> Answer from the original paper
-- [x] Saving the model during the training
-- [x] Choose optimizer for the DDPG agent
-- [x] Update the CLI
-- [] Write the introduction
-- [] Add some photos of the the results.
+- This repository contains code for reproducing results from Bachelor thesis, that tests
+an existing Goal-GAN algorithm on off-policy method (DDPG more specifically)
+
+- The results could be similar to the following images
+
+| Iteration 1    | Iteration 6    |
+| -------------- | -------------- |
+| ![](./images/goals_iter_0.svg)   | ![](./images/goals_iter_5.svg)|
+
+| Iteration 21   | Iteration 100   |
+| -------------- | -------------- |
+| ![](./images/goals_iter_21.svg)   | ![](./images/goals_iter_99.svg)|
+
+
 
 ## Installation
 - First, install mujoco, the installation instructions can be found on their [Github-page](https://github.com/openai/mujoco-py) (NOTE: as of writing, only version 2.10 of mujoco is supported)
@@ -41,7 +44,7 @@
   ```shell
   conda activate <name-of-the-env>
   ```
-- Additionally, Pytorch is needed. Refer to https://pytorch.org/get-started/locally/ for installation guide. The code was written targeting v1.10.1.
+- Additionally, Pytorch is required. Refer to [Pytorch's own documentation](https://pytorch.org/get-started/locally/) for installation guide. The code was written targeting v1.10.1.
 
 ## Reproducing the results
 To reproduce the results from the thesis, run
@@ -49,6 +52,7 @@ To reproduce the results from the thesis, run
 python main.py train --goal-count=150 --episode-count=100 --gan-iter-count=150 --buffer-size=10000 --actor-batch-norm --critic-batch-norm --save-after=10 --gan-save-path=path/where/models/saved/gan.tar --agent-save-path=path/where/models/saved/agent_model_name.tar
 ```
 - This will train the agent using exact same settings than in the thesis. Note that the script automatically appends the iteration count to the saved model name, so none of the saved models will be overwritten during the training. Note that this process is quite time consuming.
+
 
 - The CLI contains quite many different parameters that one can use to alter the training of the model without touching the underlying code, so just run
 ```shell

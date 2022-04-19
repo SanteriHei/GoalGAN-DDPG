@@ -99,13 +99,12 @@ def _parse_and_train(args: argparse.Namespace) -> None:
         hidden_size=args.gen_hidden_size, layer_count=args.gen_nlayers,
         opt_lr=args.gen_lr, opt_alpha=args.gen_alpha, opt_momentum=args.gen_momentum
     )
-    _writer.add_text("GAN/generator", f"{generator_config}")
 
     discriminator_config = GANConfig(
         hidden_size=args.disc_hidden_size, layer_count=args.disc_nlayers,
         opt_lr=args.disc_lr, opt_alpha=args.disc_alpha, opt_momentum=args.disc_momentum
     )
-    _writer.add_text("GAN/discriminator", f"{discriminator_config}")
+    
 
     #Create configuration for the DDPG Agent with specified hyperparameters.
     ddpg_config = DDPGConfig(
@@ -116,6 +115,8 @@ def _parse_and_train(args: argparse.Namespace) -> None:
    
     env, agent, lsgan = _create(args.env, generator_config, discriminator_config, ddpg_config, device)
     _writer.add_text("Agent/DDPG", f"{ddpg_config}")
+    _writer.add_text("GAN/generator", f"{generator_config}")
+    _writer.add_text("GAN/discriminator", f"{discriminator_config}")
 
     #If the checkpoints where specified, load the models.
     if args.use_checkpoint:
