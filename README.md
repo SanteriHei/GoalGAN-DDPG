@@ -11,7 +11,7 @@ an existing Goal-GAN algorithm on off-policy method (DDPG more specifically)
 
 | Iteration 21   | Iteration 100   |
 | -------------- | -------------- |
-| ![](./images/goals_iter_21.svg)   | ![](./images/goals_iter_99.svg)|
+| ![](./images/goals_iter_20.svg)   | ![](./images/goals_iter_99.svg)|
 
 
 
