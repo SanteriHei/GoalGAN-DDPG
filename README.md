@@ -1,10 +1,17 @@
-# Goal-GAN for DDPG Agent
+<div align="center">
+  <h2 align="center"> Automatic intermediate goal-generation for DDPG</h2>
+  <p align="center">
+    Implementation for the BSc thesis "Intermediate goal generation for off-policy reinforcement learning methods"
+    </br>
+    <a href="https://drive.google.com/file/d/1WOE3nb8qgyGsHdCCADwRFcJG54isTDew/view?usp=sharing"><strong> Presentation slides</strong></a> | <a href="https://urn.fi/URN:NBN:fi:tuni-202205104688"> <strong> Thesis</strong> </a>
+  </p>
+</div>
 
-- This repository contains code for reproducing results from Bachelor thesis, that tests
-an existing Goal-GAN algorithm on off-policy method (DDPG more specifically)
+This repository contains the code for reproducing the results from Bachelor thesis "Intermediate goal generation for off-policy reinforcement learning methods". More specifically, this work adapts the existing method of Florensa et al. ("Automatic goal generation for reinforcement learning agents") to 
+DDPG, instead of the originally used TRPO. 
 
-- The results could be similar to the following images
 
+Unfortunately, the proposed approach did not work, and instead the algorithm diverged. The below plots shows a possible outcome of the training:
 | Iteration 1    | Iteration 6    |
 | -------------- | -------------- |
 | ![](./images/goals_iter_0.svg)   | ![](./images/goals_iter_5.svg)|
@@ -67,3 +74,21 @@ python main.py eval <path/to/the/model.tar> --buffer-size=10000 --critic-batch-n
 ```
 - Note that the hyperparameters of the DDPG that were used during the training must be set also here (otherwise the model loading will fail to a mismatch of structures.)
 - The eval script also contains a few options to alter it's functionality, so check the help to see all possible options.
+
+## Acknowledgements
+This project takes heavy inspiration from the work of Florensa et al. Thus, if you use this code, please cite the original work:
+```bibtex
+  @InProceedings{pmlr-v80-florensa18a,
+    title = 	  {Automatic Goal Generation for Reinforcement Learning Agents},
+    author =    {Florensa, Carlos and Held, David and Geng, Xinyang and Abbeel, Pieter},
+    booktitle = {Proceedings of the 35th International Conference on Machine Learning},
+    pages = 	  {1515--1528},
+    year = 	    {2018},
+    editor = 	  {Dy, Jennifer and Krause, Andreas},
+    volume = 	  {80},
+    series = 	  {Proceedings of Machine Learning Research},
+    month = 	  {10--15 Jul},
+    publisher = {PMLR},
+    url = 	    {https://proceedings.mlr.press/v80/florensa18a.html},
+  }
+```
